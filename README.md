@@ -22,5 +22,5 @@ gcc tic_tac_toe_sdl.c -o tic_tac_toe_sdl.exe \
 
 8. run ./tic_tac_toe_sdl.exe
 
-**TO COMPILE**
+TO COMPILE:
 gcc tic_tac_toe_sdl.c -o tic_tac_toe_sdl.exe -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lm
