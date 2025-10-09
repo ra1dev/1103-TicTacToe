@@ -17,6 +17,9 @@ TTF_Font *font = NULL;
 
 int currentPlayer = 1;
 int singlePlayerMode = 0;
+int scoreX = 0;
+int scoreO = 0;
+int firstPlayer = 1; // Who starts each round
 
 SDL_Texture *xTexture = NULL;
 SDL_Texture *oTexture = NULL;
@@ -26,6 +29,7 @@ SDL_Color oColor = {50, 180, 220, 255};
 SDL_Color textColor = {255, 255, 255, 255};
 
 int needsRedraw = 1;
+SDL_Rect quitButton;
 
 void initBoard() {
     for (int i = 0; i < 3; i++)
@@ -38,6 +42,26 @@ SDL_Texture* createTextTexture(const char* text, TTF_Font* font, SDL_Color color
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
     SDL_FreeSurface(surface);
     return texture;
+}
+
+void drawScores() {
+    char scoreText[50];
+    snprintf(scoreText, sizeof(scoreText), "X: %d   O: %d", scoreX, scoreO);
+    SDL_Texture* scoreTex = createTextTexture(scoreText, font, textColor);
+    int w, h;
+    SDL_QueryTexture(scoreTex, NULL, NULL, &w, &h);
+    SDL_Rect dest = {10, 10, w, h};
+    SDL_RenderCopy(renderer, scoreTex, NULL, &dest);
+    SDL_DestroyTexture(scoreTex);
+}
+
+void drawQuitButton() {
+    SDL_Texture* quitTex = createTextTexture("Quit", font, textColor);
+    int w, h;
+    SDL_QueryTexture(quitTex, NULL, NULL, &w, &h);
+    quitButton = (SDL_Rect){WINDOW_WIDTH - w - 20, 20, w, h};
+    SDL_RenderCopy(renderer, quitTex, NULL, &quitButton);
+    SDL_DestroyTexture(quitTex);
 }
 
 void drawBoard() {
@@ -63,9 +87,15 @@ void drawBoard() {
             }
         }
     }
-
+    drawScores();
+    drawQuitButton();
     SDL_RenderPresent(renderer);
     needsRedraw = 0;
+}
+
+void updateScores(int winner) {
+    if (winner == X) scoreX++;
+    else if (winner == O) scoreO++;
 }
 
 int checkWin() {
@@ -109,36 +139,29 @@ int modeMenu() {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
+        SDL_Texture* computerText = createTextTexture("Singleplayer", font, textColor);
         SDL_Texture* multiplayerText = createTextTexture("Multiplayer", font, textColor);
-        SDL_Texture* computerText = createTextTexture("Against Computer", font, textColor);
 
         int w, h;
-        SDL_QueryTexture(multiplayerText, NULL, NULL, &w, &h);
-        SDL_Rect multiRect = {WINDOW_WIDTH/2 - w/2, WINDOW_HEIGHT/3 - h/2, w, h};
         SDL_QueryTexture(computerText, NULL, NULL, &w, &h);
-        SDL_Rect compRect = {WINDOW_WIDTH/2 - w/2, WINDOW_HEIGHT*2/3 - h/2, w, h};
+        SDL_Rect compRect = {WINDOW_WIDTH/2 - w/2, WINDOW_HEIGHT/3 - h/2, w, h};
+        SDL_QueryTexture(multiplayerText, NULL, NULL, &w, &h);
+        SDL_Rect multiRect = {WINDOW_WIDTH/2 - w/2, WINDOW_HEIGHT*2/3 - h/2, w, h};
 
-        SDL_RenderCopy(renderer, multiplayerText, NULL, &multiRect);
         SDL_RenderCopy(renderer, computerText, NULL, &compRect);
+        SDL_RenderCopy(renderer, multiplayerText, NULL, &multiRect);
 
         SDL_RenderPresent(renderer);
 
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
-                running = 0;
-                return 0;
-            }
+            if (event.type == SDL_QUIT) return 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = event.button.x;
                 int my = event.button.y;
-                if (mx >= multiRect.x && mx <= multiRect.x + multiRect.w &&
-                    my >= multiRect.y && my <= multiRect.y + multiRect.h) {
+                if (mx >= multiRect.x && mx <= multiRect.x + multiRect.w && my >= multiRect.y && my <= multiRect.y + multiRect.h)
                     return 1;
-                }
-                if (mx >= compRect.x && mx <= compRect.x + compRect.w &&
-                    my >= compRect.y && my <= compRect.y + compRect.h) {
+                if (mx >= compRect.x && mx <= compRect.x + compRect.w && my >= compRect.y && my <= compRect.y + compRect.h)
                     return 2;
-                }
             }
         }
         SDL_DestroyTexture(multiplayerText);
@@ -163,8 +186,7 @@ int main(int argc, char *argv[]) {
     SDL_Init(SDL_INIT_VIDEO);
     TTF_Init();
 
-    window = SDL_CreateWindow("Tic Tac Toe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                              WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    window = SDL_CreateWindow("Tic Tac Toe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
     font = TTF_OpenFont("C:/Windows/Fonts/arial.ttf", 32);
@@ -173,10 +195,7 @@ int main(int argc, char *argv[]) {
     oTexture = createTextTexture("O", font, oColor);
 
     singlePlayerMode = modeMenu();
-    if (!singlePlayerMode) {
-        SDL_Quit();
-        return 0;
-    }
+    if (!singlePlayerMode) { SDL_Quit(); return 0; }
 
     int running = 1;
     initBoard();
@@ -186,12 +205,19 @@ int main(int argc, char *argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
-                int x = event.button.x / CELL_SIZE;
-                int y = event.button.y / CELL_SIZE;
-                if (board[y][x] == EMPTY) {
-                    board[y][x] = (currentPlayer == 1) ? X : O;
-                    currentPlayer = (currentPlayer == 1) ? 2 : 1;
-                    needsRedraw = 1;
+                int mx = event.button.x;
+                int my = event.button.y;
+                if (mx >= quitButton.x && mx <= quitButton.x + quitButton.w &&
+                    my >= quitButton.y && my <= quitButton.y + quitButton.h) {
+                    running = 0;
+                } else {
+                    int x = mx / CELL_SIZE;
+                    int y = my / CELL_SIZE;
+                    if (board[y][x] == EMPTY) {
+                        board[y][x] = (currentPlayer == 1) ? X : O;
+                        currentPlayer = (currentPlayer == 1) ? 2 : 1;
+                        needsRedraw = 1;
+                    }
                 }
             }
         }
@@ -206,10 +232,20 @@ int main(int argc, char *argv[]) {
 
         int winner = checkWin();
         if (winner || isBoardFull()) {
+            updateScores(winner);
+
             if (winner == X) displayMessage("Player X Wins!");
             else if (winner == O) displayMessage(singlePlayerMode == 2 ? "Computer Wins!" : "Player O Wins!");
             else displayMessage("Draw!");
-            running = 0;
+
+            // Loser starts next round
+            if (winner == X) firstPlayer = 2;
+            else if (winner == O) firstPlayer = 1;
+            // Draw → keep same starter
+
+            currentPlayer = firstPlayer;
+            initBoard();
+            needsRedraw = 1;
         }
     }
 
