@@ -4,40 +4,51 @@
 #include <stdlib.h>
 #include <time.h>
 
+// ---------- Window and grid configuration ----------
 #define WINDOW_WIDTH 600
 #define WINDOW_HEIGHT 600
 #define CELL_SIZE 200
 
+// ---------- Enum for board cell states ----------
 typedef enum { EMPTY, X, O } Cell;
-Cell board[3][3];
+Cell board[3][3];  // 3x3 Tic Tac Toe board
 
+// ---------- SDL global variables ----------
 SDL_Window *window = NULL;
 SDL_Renderer *renderer = NULL;
 TTF_Font *font = NULL;
 
-int currentPlayer = 1;
-int singlePlayerMode = 0;
+// ---------- Game state variables ----------
+int currentPlayer = 1;       // 1 = Player X, 2 = Player O
+int singlePlayerMode = 0;    // 1 = Multiplayer, 2 = Singleplayer
 int scoreX = 0;
 int scoreO = 0;
-int firstPlayer = 1; // Who starts each round
-int minimax(int b[9], int player);
+int firstPlayer = 1;         // Keeps track of who starts each round
 
+// ---------- Texture pointers ----------
 SDL_Texture *xTexture = NULL;
 SDL_Texture *oTexture = NULL;
 
+// ---------- Colors ----------
 SDL_Color xColor = {220, 50, 50, 255};
 SDL_Color oColor = {50, 180, 220, 255};
 SDL_Color textColor = {255, 255, 255, 255};
 
+// ---------- UI state ----------
 int needsRedraw = 1;
 SDL_Rect backButton;
 
+// ---------- Forward declarations ----------
+int minimax(int b[9], int player);
+
+// ---------- Function to initialize an empty board ----------
 void initBoard() {
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
             board[i][j] = EMPTY;
 }
 
+// ---------- Helper: create a text texture ----------
 SDL_Texture* createTextTexture(const char* text, TTF_Font* font, SDL_Color color) {
     SDL_Surface* surface = TTF_RenderText_Solid(font, text, color);
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
@@ -45,6 +56,7 @@ SDL_Texture* createTextTexture(const char* text, TTF_Font* font, SDL_Color color
     return texture;
 }
 
+// ---------- Draw player scores ----------
 void drawScores() {
     char scoreText[50];
     snprintf(scoreText, sizeof(scoreText), "X: %d   O: %d", scoreX, scoreO);
@@ -56,6 +68,7 @@ void drawScores() {
     SDL_DestroyTexture(scoreTex);
 }
 
+// ---------- Draw the "Back" button ----------
 void drawbackButton() {
     SDL_Texture* quitTex = createTextTexture("Back", font, textColor);
     int w, h;
@@ -65,16 +78,20 @@ void drawbackButton() {
     SDL_DestroyTexture(quitTex);
 }
 
+// ---------- Draw the game board, grid, and symbols ----------
 void drawBoard() {
+    // Clear screen to black
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
 
+    // Draw white grid lines
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     for (int i = 1; i < 3; i++) {
         SDL_RenderDrawLine(renderer, i * CELL_SIZE, 0, i * CELL_SIZE, WINDOW_HEIGHT);
         SDL_RenderDrawLine(renderer, 0, i * CELL_SIZE, WINDOW_WIDTH, i * CELL_SIZE);
     }
 
+    // Draw Xs and Os
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
             int x = j * CELL_SIZE;
@@ -88,31 +105,41 @@ void drawBoard() {
             }
         }
     }
+
+    // Draw UI elements
     drawScores();
     drawbackButton();
+
+    // Present everything on screen
     SDL_RenderPresent(renderer);
     needsRedraw = 0;
 }
 
+// ---------- Update scores after a win ----------
 void updateScores(int winner) {
     if (winner == X) scoreX++;
     else if (winner == O) scoreO++;
 }
 
+// ---------- Check for a winner ----------
 int checkWin() {
+    // Check rows and columns
     for (int i = 0; i < 3; i++) {
         if (board[i][0] != EMPTY && board[i][0] == board[i][1] && board[i][1] == board[i][2])
             return board[i][0];
         if (board[0][i] != EMPTY && board[0][i] == board[1][i] && board[1][i] == board[2][i])
             return board[0][i];
     }
+    // Check diagonals
     if (board[0][0] != EMPTY && board[0][0] == board[1][1] && board[1][1] == board[2][2])
         return board[0][0];
     if (board[0][2] != EMPTY && board[0][2] == board[1][1] && board[1][1] == board[2][0])
         return board[0][2];
-    return 0;
+
+    return 0; // No winner yet
 }
 
+// ---------- Check if the board is completely filled ----------
 int isBoardFull() {
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
@@ -121,9 +148,10 @@ int isBoardFull() {
     return 1;
 }
 
+// ---------- AI move using minimax algorithm ----------
 int bestMove(Cell board[3][3]) {
     int b[9];
-    // Convert 3x3 board to 1D array
+    // Convert 3x3 board into 1D array
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
             b[i*3 + j] = (board[i][j] == X) ? 1 : (board[i][j] == O) ? -1 : 0;
@@ -144,6 +172,7 @@ int bestMove(Cell board[3][3]) {
     return move;
 }
 
+// ---------- Helper: Check for a win in minimax array ----------
 int winMinimax(int b[9]) {
     for (int i = 0; i < 3; i++) {
         if (b[i*3] != 0 && b[i*3] == b[i*3+1] && b[i*3+1] == b[i*3+2])
@@ -156,6 +185,7 @@ int winMinimax(int b[9]) {
     return 0;
 }
 
+// ---------- Minimax algorithm (recursive AI logic) ----------
 int minimax(int b[9], int player) {
     int winner = winMinimax(b);
     if (winner != 0) return winner * player;
@@ -173,10 +203,11 @@ int minimax(int b[9], int player) {
             b[i] = 0;
         }
     }
-    if (move == -1) return 0;
+    if (move == -1) return 0; // Draw
     return score;
 }
 
+// ---------- Make the bot perform its move ----------
 void botMove() {
     int move = bestMove(board);
     if (move != -1) {
@@ -187,14 +218,17 @@ void botMove() {
     }
 }
 
+// ---------- Display main menu to select mode ----------
 int modeMenu() {
     SDL_Event event;
     int running = 1;
 
     while (running) {
+        // Clear menu screen
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
+        // Render menu options
         SDL_Texture* computerText = createTextTexture("Singleplayer", font, textColor);
         SDL_Texture* multiplayerText = createTextTexture("Multiplayer", font, textColor);
 
@@ -206,20 +240,20 @@ int modeMenu() {
 
         SDL_RenderCopy(renderer, computerText, NULL, &compRect);
         SDL_RenderCopy(renderer, multiplayerText, NULL, &multiRect);
-
         SDL_RenderPresent(renderer);
 
+        // Handle mouse clicks
         while (SDL_PollEvent(&event)) {
-            // if (event.type == SDL_QUIT) return 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = event.button.x;
                 int my = event.button.y;
                 if (mx >= multiRect.x && mx <= multiRect.x + multiRect.w && my >= multiRect.y && my <= multiRect.y + multiRect.h)
-                    return 1; //multiplayer (singleplayermode = 1)
+                    return 1; // Multiplayer
                 if (mx >= compRect.x && mx <= compRect.x + compRect.w && my >= compRect.y && my <= compRect.y + compRect.h)
-                    return 2; //singleplayer (singleplayermode = 2)
+                    return 2; // Singleplayer
             }
         }
+
         SDL_DestroyTexture(multiplayerText);
         SDL_DestroyTexture(computerText);
         SDL_Delay(16);
@@ -227,6 +261,7 @@ int modeMenu() {
     return 0;
 }
 
+// ---------- Display win/draw message ----------
 void displayMessage(const char* message) {
     SDL_Texture* msgTex = createTextTexture(message, font, textColor);
     int w, h;
@@ -235,43 +270,52 @@ void displayMessage(const char* message) {
     SDL_RenderCopy(renderer, msgTex, NULL, &dest);
     SDL_RenderPresent(renderer);
     SDL_DestroyTexture(msgTex);
-    SDL_Delay(2000);
+    SDL_Delay(2000);  // Pause before next round
 }
 
+// ---------- MAIN FUNCTION ----------
 int main(int argc, char *argv[]) {
     SDL_Init(SDL_INIT_VIDEO);
     TTF_Init();
 
+    // Create window and renderer
     window = SDL_CreateWindow("Tic Tac Toe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
+    // Load font (adjust path for your system if needed)
     font = TTF_OpenFont("C:/Windows/Fonts/arial.ttf", 32);
 
+    // Create textures for X and O
     xTexture = createTextTexture("X", font, xColor);
     oTexture = createTextTexture("O", font, oColor);
 
+    // Show mode selection menu
     singlePlayerMode = modeMenu();
-    // if (!singlePlayerMode) { SDL_Quit(); return 0; }
 
     int running = 1;
     initBoard();
 
+    // ---------- Main game loop ----------
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            // if (event.type == SDL_QUIT) running = 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = event.button.x;
                 int my = event.button.y;
+
+                // Handle "Back" button click
                 if (mx >= backButton.x && mx <= backButton.x + backButton.w &&
                     my >= backButton.y && my <= backButton.y + backButton.h) {
-                    // running = 0;
-                    singlePlayerMode = modeMenu();  // reselect mode properly
-                    currentPlayer = firstPlayer;    // reset who starts
+                    singlePlayerMode = modeMenu();  // Return to mode menu
+                    currentPlayer = firstPlayer;
+                    
+                    //reset all player scores to 0
+                    scoreX = 0;
+                    scoreO = 0;
                     initBoard();
                     needsRedraw = 1;
 
-                } else {
+                } else { // Handle clicks on game grid
                     int x = mx / CELL_SIZE;
                     int y = my / CELL_SIZE;
                     if (board[y][x] == EMPTY) {
@@ -283,14 +327,16 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // AI move (only in single-player mode)
         if (singlePlayerMode == 2 && currentPlayer == 2 && !isBoardFull() && checkWin() == 0) {
             botMove();
             currentPlayer = 1;
         }
 
         if (needsRedraw) drawBoard();
-        SDL_Delay(16);
+        SDL_Delay(16); // Limit FPS
 
+        // Check for end-of-round conditions
         int winner = checkWin();
         if (winner || isBoardFull()) {
             updateScores(winner);
@@ -299,10 +345,9 @@ int main(int argc, char *argv[]) {
             else if (winner == O) displayMessage(singlePlayerMode == 2 ? "Computer Wins!" : "Player O Wins!");
             else displayMessage("Draw!");
 
-            // Loser starts next round
+            // Determine next starting player
             if (winner == X) firstPlayer = 2;
             else if (winner == O) firstPlayer = 1;
-            // Draw → keep same starter
 
             currentPlayer = firstPlayer;
             initBoard();
@@ -310,6 +355,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // ---------- Cleanup ----------
     SDL_DestroyTexture(xTexture);
     SDL_DestroyTexture(oTexture);
     TTF_CloseFont(font);
