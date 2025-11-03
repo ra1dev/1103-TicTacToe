@@ -44,13 +44,11 @@ libSDL2_ttf.dll.a
 Compile using gcc with SDL2 and SDL2_ttf:
 ```bash
 gcc tic_tac_toe_sdl.c -o tic_tac_toe_sdl.exe \ -IC:/msys64/ucrt64/include/SDL2 \ -LC:/msys64/ucrt64/lib \ -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lm -mwindows
-
+```
+```bash
 gcc tic_tac_toe_sdl.c -o tic_tac_toe_sdl.exe -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lm
 ```
-
-
-
-
+<br><br><br>
 ## Inefficiencies and Suggested Fixes
 
 ### Rendering
