@@ -30,7 +30,7 @@ SDL_Color oColor = {50, 180, 220, 255};
 SDL_Color textColor = {255, 255, 255, 255};
 
 int needsRedraw = 1;
-SDL_Rect quitButton;
+SDL_Rect backButton;
 
 void initBoard() {
     for (int i = 0; i < 3; i++)
@@ -56,12 +56,12 @@ void drawScores() {
     SDL_DestroyTexture(scoreTex);
 }
 
-void drawQuitButton() {
-    SDL_Texture* quitTex = createTextTexture("Quit", font, textColor);
+void drawbackButton() {
+    SDL_Texture* quitTex = createTextTexture("Back", font, textColor);
     int w, h;
     SDL_QueryTexture(quitTex, NULL, NULL, &w, &h);
-    quitButton = (SDL_Rect){WINDOW_WIDTH - w - 20, 20, w, h};
-    SDL_RenderCopy(renderer, quitTex, NULL, &quitButton);
+    backButton = (SDL_Rect){WINDOW_WIDTH - w - 20, 20, w, h};
+    SDL_RenderCopy(renderer, quitTex, NULL, &backButton);
     SDL_DestroyTexture(quitTex);
 }
 
@@ -89,7 +89,7 @@ void drawBoard() {
         }
     }
     drawScores();
-    drawQuitButton();
+    drawbackButton();
     SDL_RenderPresent(renderer);
     needsRedraw = 0;
 }
@@ -210,14 +210,14 @@ int modeMenu() {
         SDL_RenderPresent(renderer);
 
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) return 0;
+            // if (event.type == SDL_QUIT) return 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = event.button.x;
                 int my = event.button.y;
                 if (mx >= multiRect.x && mx <= multiRect.x + multiRect.w && my >= multiRect.y && my <= multiRect.y + multiRect.h)
-                    return 1;
+                    return 1; //multiplayer (singleplayermode = 1)
                 if (mx >= compRect.x && mx <= compRect.x + compRect.w && my >= compRect.y && my <= compRect.y + compRect.h)
-                    return 2;
+                    return 2; //singleplayer (singleplayermode = 2)
             }
         }
         SDL_DestroyTexture(multiplayerText);
@@ -251,7 +251,7 @@ int main(int argc, char *argv[]) {
     oTexture = createTextTexture("O", font, oColor);
 
     singlePlayerMode = modeMenu();
-    if (!singlePlayerMode) { SDL_Quit(); return 0; }
+    // if (!singlePlayerMode) { SDL_Quit(); return 0; }
 
     int running = 1;
     initBoard();
@@ -259,13 +259,18 @@ int main(int argc, char *argv[]) {
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) running = 0;
+            // if (event.type == SDL_QUIT) running = 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = event.button.x;
                 int my = event.button.y;
-                if (mx >= quitButton.x && mx <= quitButton.x + quitButton.w &&
-                    my >= quitButton.y && my <= quitButton.y + quitButton.h) {
-                    running = 0;
+                if (mx >= backButton.x && mx <= backButton.x + backButton.w &&
+                    my >= backButton.y && my <= backButton.y + backButton.h) {
+                    // running = 0;
+                    singlePlayerMode = modeMenu();  // reselect mode properly
+                    currentPlayer = firstPlayer;    // reset who starts
+                    initBoard();
+                    needsRedraw = 1;
+
                 } else {
                     int x = mx / CELL_SIZE;
                     int y = my / CELL_SIZE;
