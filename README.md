@@ -24,3 +24,45 @@ gcc tic_tac_toe_sdl.c -o tic_tac_toe_sdl.exe \
 
 TO COMPILE:
 gcc tic_tac_toe_sdl.c -o tic_tac_toe_sdl.exe -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lm
+
+## Inefficiencies and Suggested Fixes
+
+### Rendering
+- Recreates text textures every frame  
+- **Fix:** Cache or reuse textures instead of recreating them each loop  
+
+---
+
+### Logic
+- Uses full minimax algorithm without pruning (explores all possible game states)  
+- **Fix:** Implement alpha–beta pruning or memoization to reduce computation  
+
+---
+
+### Events
+- Uses polling loop with `SDL_Delay()` (wastes CPU cycles)  
+- **Fix:** Replace with `SDL_WaitEvent()` or `SDL_WaitEventTimeout()` for event-driven updates  
+
+---
+
+### Memory
+- Leaks textures in loops (e.g., menu textures recreated every iteration)  
+- **Fix:** Properly destroy textures or move their creation outside loops  
+
+---
+
+### Responsiveness
+- Uses blocking calls like `SDL_Delay(2000)` which freeze rendering  
+- **Fix:** Replace with non-blocking timers or per-frame countdown logic  
+
+---
+
+### Robustness
+- Missing error checks and array bounds validation  
+- **Fix:** Validate all SDL and TTF return values; check mouse click bounds  
+
+---
+
+### Architecture
+- All game logic and states handled in one big loop  
+- **Fix:** Use a simple state machine or modularize into separate functions/modules (menu, game, results)
