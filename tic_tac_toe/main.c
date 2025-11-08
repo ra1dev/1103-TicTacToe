@@ -1,5 +1,9 @@
-// main.c — SDL2 Tic-Tac-Toe (vector X/O, taller layout, rounded UI)
-// Build:
+// main.c — SDL2 Tic-Tac-Toe (vector X/O, refined hover buttons, taller layout)
+// Changes in this version:
+// 1) Buttons now have a *true hover state*: white → soft grey fill, consistent 1px border,
+//    and a subtle drop shadow (no jaggy edges).
+// 2) Increased window height + extra padding below Reset Game button.
+// Build (UCRT64):
 //   gcc main.c Minimax.c N_bayes.c -o ttt.exe \
 //     -IC:/msys64/ucrt64/include/SDL2 -LC:/msys64/ucrt64/lib \
 //     -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lm -mwindows
@@ -14,7 +18,7 @@
 
 // ------------ Window / board sizing ------------
 #define WINDOW_WIDTH   600
-#define WINDOW_HEIGHT  760   // taller so the full grid + buttons fit
+#define WINDOW_HEIGHT  840   // taller so there is more space *below* Reset Game
 
 // Visual grid sizing (cells + gaps inside a rounded "board card")
 #define CELL_SIZE      140
@@ -26,9 +30,16 @@
 #define MODE_BOTTOM_PAD            24
 #define SCOREBOXES_BOTTOM_PAD      26
 #define TURN_LABEL_BOTTOM_PAD      18
-#define BOARD_BOTTOM_PAD           18
+#define BOARD_BOTTOM_PAD           36   // more space between board and Reset button (↑)
+#define WINLINE_THICKNESS          8    //line thickness when user wins
 
+
+// ------- Game types -------
 typedef enum { EMPTY=0, X=1, O=2 } Cell;
+typedef enum { MODE_MP=1, MODE_SP=2 } GameMode;
+typedef enum { DIFF_BACK=-1, DIFF_EASY=0, DIFF_MEDIUM=1, DIFF_HARD=2 } Difficulty;
+typedef enum { SIDE_X=0, SIDE_O=1 } PlayerSide;
+typedef enum { ICON_NONE=0, ICON_SOLO=1, ICON_DUO=2 } ButtonIcon;
 
 // ---- externs from your algorithm modules ----
 int bestMove_minimax(Cell b[3][3], int depthLimit, int blunderPct);
@@ -36,25 +47,21 @@ int bestMove_minimax_for(Cell b[3][3], Cell aiPiece, int depthLimit, int blunder
 int bestMove_naive_bayes(Cell b[3][3]);
 int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece);
 void nb_train_from_file(const char* path);
+// forward declaration
+static void renderGame(void);
+
 
 // ---- global state ----
 Cell board[3][3];
-
 SDL_Window *window = NULL;
 SDL_Renderer *renderer = NULL;
 TTF_Font *font = NULL;
-
-typedef enum { MODE_MP=1, MODE_SP=2 } GameMode;
-typedef enum { DIFF_BACK=-1, DIFF_EASY=0, DIFF_MEDIUM=1, DIFF_HARD=2 } Difficulty;
-typedef enum { SIDE_X=0, SIDE_O=1 } PlayerSide;
-typedef enum { ICON_NONE=0, ICON_SOLO=1, ICON_DUO=2 } ButtonIcon;
 
 int currentPlayer = 1;          // 1 = Player X turn, 2 = Player O turn
 GameMode gameMode = MODE_SP;    // default
 Difficulty aiDiff = DIFF_EASY;  // default for SP
 PlayerSide playerSide = SIDE_X; // default: human plays X
 Cell aiPiece = O;               // derived from playerSide
-
 int scoreX = 0, scoreO = 0;
 int firstPlayer = 1;            // 1 -> X starts, 2 -> O starts
 
@@ -87,6 +94,131 @@ static SDL_Texture* createTextTexture(const char* text, TTF_Font* fnt, SDL_Color
     SDL_FreeSurface(surface);
     return texture;
 }
+
+
+// ---------- Winning Line Animation Helpers ----------
+
+// Draw a thick line between two points (used for win animation)
+static void drawThickLine(float x1, float y1, float x2, float y2, int thickness, SDL_Color color) {
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+    float dx = x2 - x1, dy = y2 - y1;
+    float len = sqrtf(dx*dx + dy*dy);
+    if (len == 0) return;
+    dx /= len; dy /= len;
+    float nx = -dy, ny = dx;
+    int half = thickness / 2;
+    for (int i = -half; i <= half; i++) {
+        float ox = nx * i, oy = ny * i;
+        SDL_RenderDrawLine(renderer, (int)(x1 + ox), (int)(y1 + oy), (int)(x2 + ox), (int)(y2 + oy));
+    }
+}
+
+// Find the winning line coordinates
+static int getWinLine(int *r1, int *c1, int *r2, int *c2) {
+    for (int i = 0; i < 3; i++) {
+        if (board[i][0] != EMPTY && board[i][0] == board[i][1] && board[i][1] == board[i][2]) {
+            *r1 = i; *c1 = 0; *r2 = i; *c2 = 2; return board[i][0];
+        }
+        if (board[0][i] != EMPTY && board[0][i] == board[1][i] && board[1][i] == board[2][i]) {
+            *r1 = 0; *c1 = i; *r2 = 2; *c2 = i; return board[0][i];
+        }
+    }
+    if (board[0][0] != EMPTY && board[0][0] == board[1][1] && board[1][1] == board[2][2]) {
+        *r1 = 0; *c1 = 0; *r2 = 2; *c2 = 2; return board[0][0];
+    }
+    if (board[0][2] != EMPTY && board[0][2] == board[1][1] && board[1][1] == board[2][0]) {
+        *r1 = 0; *c1 = 2; *r2 = 2; *c2 = 0; return board[0][2];
+    }
+    return 0;
+}
+
+// Animate the winning line (0.6s linear animation)
+// Smooth animated winning line (0.6s), solid opaque white, with subtle overshoot.
+// Requires: getWinLine(int*,int*,int*,int*) and renderGame(void)
+// Uses: CELL_SIZE, GRID_GAP, BOARD_PAD, WINLINE_THICKNESS, renderer
+static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor /* pass {255,255,255,255} */) {
+    int r1, c1, r2, c2;
+    int winner = getWinLine(&r1, &c1, &r2, &c2);
+    if (!winner) return;
+
+    const int cellStep = CELL_SIZE + GRID_GAP;
+    const int bx = boardRect.x + BOARD_PAD;
+    const int by = boardRect.y + BOARD_PAD;
+
+    // Centers of the two winning cells
+    float x1 = bx + c1 * cellStep + CELL_SIZE * 0.5f;
+    float y1 = by + r1 * cellStep + CELL_SIZE * 0.5f;
+    float x2 = bx + c2 * cellStep + CELL_SIZE * 0.5f;
+    float y2 = by + r2 * cellStep + CELL_SIZE * 0.5f;
+
+    // Extend the line a bit past the cells (overshoot for a polished look)
+    float dx = x2 - x1, dy = y2 - y1;
+    float len = sqrtf(dx*dx + dy*dy);
+    if (len > 0.0f) {
+        float extend = 0.12f * len;   // 12% overshoot
+        dx /= len; dy /= len;
+        x1 -= dx * extend;  y1 -= dy * extend;
+        x2 += dx * extend;  y2 += dy * extend;
+    }
+
+    // Fully opaque line (no blending)
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
+    const float duration_ms = 600.0f; // 0.6s
+    Uint32 start = SDL_GetTicks();
+    for (;;) {
+        float t = (SDL_GetTicks() - start) / duration_ms;
+        if (t > 1.0f) t = 1.0f;
+
+        // Redraw the game behind the line each frame
+        renderGame();
+
+        // Current end point along the line
+        float cx = x1 + (x2 - x1) * t;
+        float cy = y1 + (y2 - y1) * t;
+
+        // Draw the animated segment
+        SDL_SetRenderDrawColor(renderer, lineColor.r, lineColor.g, lineColor.b, lineColor.a);
+        // thick line by offsetting perpendicular
+        {
+            float ldx = x2 - x1, ldy = y2 - y1;
+            float llen = sqrtf(ldx*ldx + ldy*ldy);
+            float nx = 0.0f, ny = 0.0f;
+            if (llen > 0.0f) { nx = -ldy/llen; ny = ldx/llen; }
+            int half = WINLINE_THICKNESS / 2;
+            for (int i = -half; i <= half; ++i) {
+                int ox = (int)roundf(nx * i);
+                int oy = (int)roundf(ny * i);
+                SDL_RenderDrawLine(renderer, (int)(x1 + ox), (int)(y1 + oy), (int)(cx + ox), (int)(cy + oy));
+            }
+        }
+
+        SDL_RenderPresent(renderer);
+        if (t >= 1.0f) break;
+        SDL_Delay(16); // ~60 FPS
+    }
+
+    // Ensure final full-length line is drawn once more (crisp finish)
+    renderGame();
+    {
+        float ldx = x2 - x1, ldy = y2 - y1;
+        float llen = sqrtf(ldx*ldx + ldy*ldy);
+        float nx = 0.0f, ny = 0.0f;
+        if (llen > 0.0f) { nx = -ldy/llen; ny = ldx/llen; }
+        int half = WINLINE_THICKNESS / 2;
+        for (int i = -half; i <= half; ++i) {
+            int ox = (int)roundf(nx * i);
+            int oy = (int)roundf(ny * i);
+            SDL_RenderDrawLine(renderer, (int)(x1 + ox), (int)(y1 + oy), (int)(x2 + ox), (int)(y2 + oy));
+        }
+    }
+    SDL_RenderPresent(renderer);
+}
+
+
+
+
+
 
 // -------------- rounded rect + vector primitives --------------
 static void setColor(SDL_Color c){ SDL_SetRenderDrawColor(renderer,c.r,c.g,c.b,c.a); }
@@ -180,7 +312,6 @@ static void drawRoundedRectOutline(SDL_Rect r, int rad, SDL_Color border) {
 // X: two thick diagonals drawn by offsetting lines around the centerline
 static void drawThickDiag(int x1, int y1, int x2, int y2, int thickness, SDL_Color color) {
     setColor(color);
-    // normalized perpendicular
     double dx = (double)(x2 - x1), dy = (double)(y2 - y1);
     double len = sqrt(dx*dx + dy*dy); if (len == 0) return;
     double nx = -dy/len, ny = dx/len; // unit normal
@@ -211,51 +342,103 @@ static void drawOIcon(SDL_Rect cell, int inset, int thickness, SDL_Color color, 
 }
 
 // ----- Simple person icons used in menu buttons -----
-static void drawPersonIcon(int x, int y, int size) {
-    int headR = size / 4;
-    setColor((SDL_Color){255,255,255,255});
-    fillCircle(x + size/2, y + headR + 2, headR);
-    SDL_Rect body = { x + size/6, y + size/2 - 2, (int)(size*2/3.0f), (int)(size*0.45f) };
-    SDL_RenderFillRect(renderer, &body);
-    fillCircle(body.x + 2,               body.y + body.h - headR/2, headR/2);
-    fillCircle(body.x + body.w - 2,      body.y + body.h - headR/2, headR/2);
+
+// Stroke-style rounded bar (fills then punches inner to create a clean outline)
+static void drawRoundedBarStroke(SDL_Rect r, int radius, int stroke, SDL_Color color, SDL_Color bg) {
+    if (radius*2 > r.w) radius = r.w/2;
+    if (radius*2 > r.h) radius = r.h/2;
+    if (stroke < 1) stroke = 1;
+
+    drawRoundedRectFilled(r, radius, color);
+    SDL_Rect inner = { r.x + stroke, r.y + stroke, r.w - 2*stroke, r.h - 2*stroke };
+    int innerRad = radius - stroke;
+    if (inner.w > 0 && inner.h > 0 && innerRad >= 0) {
+        drawRoundedRectFilled(inner, innerRad, bg);
+    }
 }
 
-static void drawTwoPeopleIcon(int x, int y, int size) {
-    setColor((SDL_Color){210,210,210,255});
-    drawPersonIcon(x + size/6, y, size * 9 / 10);
-    setColor((SDL_Color){255,255,255,255});
-    drawPersonIcon(x, y + size/6, size);
+// Hollow circle head (ring) with thickness
+static void drawHeadRing(int cx, int cy, int outerR, int stroke, SDL_Color color, SDL_Color bg) {
+    if (outerR < stroke) outerR = stroke;
+    fillRing(cx, cy, outerR, stroke, color, bg);
 }
 
-// -------------- rounded white button with icon --------------
+
+
+
+// NEW (icons in solid black)
+// Professional single-person glyph: ring head + stroked shoulders
+
+
+// Outline single-person (Material/Fluent-style)
+static void drawPersonOutline(int x, int y, int size, int stroke, SDL_Color col, SDL_Color bg) {
+    // scale
+    if (stroke < 1) stroke = 1;
+    int headR   = (int)round(size * 0.28);        // head radius
+    int cx      = x + size/2;
+    int cy      = y + (int)round(size * 0.28);    // head center Y
+    // head ring
+    fillRing(cx, cy, headR, stroke, col, bg);
+
+    // shoulders/torso as rounded bar stroke (open on top)
+    int barW = (int)round(size * 0.88);
+    int barH = (int)round(size * 0.40);
+    int barY = y + (int)round(size * 0.52);
+    SDL_Rect shoulders = { x + (size - barW)/2, barY, barW, barH };
+    int barR = barH/2;
+    drawRoundedBarStroke(shoulders, barR, stroke, col, bg);
+
+    // carve a small "neck gap" so ring and bar don't merge
+    int neckW = (int)round(size * 0.34);
+    int neckH = (int)round(stroke + 2);
+    SDL_Rect neck = { cx - neckW/2, cy + headR - neckH/2, neckW, neckH };
+    drawRoundedRectFilled(neck, neckH/2, bg);
+}
+
+// Outline two-people (rear + front) with slight offset, both stroked
+static void drawTwoPeopleOutline(int x, int y, int size, int stroke, SDL_Color col, SDL_Color bg) {
+    // back person (slightly smaller + offset up-right)
+    int bSize = (int)round(size * 0.86);
+    int bx = x + (int)round(size * 0.24);
+    int by = y - (int)round(size * 0.08);
+    drawPersonOutline(bx, by, bSize, stroke, col, bg);
+
+    // front person
+    drawPersonOutline(x, y, size, stroke, col, bg);
+}
+
+// -------------- Rounded button with refined hover (no jaggy edges) --------------
 static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon icon) {
     const int radius = 14;
-    const SDL_Color fill  = {255,255,255,255};
-    const SDL_Color border= {190,196,210,255};
-    const SDL_Color textC = {20,24,32,255};
+    const SDL_Color fillNormal  = {252,252,255,255};
+    const SDL_Color fillHover   = {236,240,245,255};
+    const SDL_Color borderColor = {184,192,208,255};
+    const SDL_Color labelColor  = { 20, 24, 32,255};
 
+    // shadow + fill + border ... (unchanged)
+    SDL_Rect shadow = { r.x, r.y + 2, r.w, r.h };
+    SDL_Color shadowCol = {0,0,0,55};
+    drawRoundedRectFilled(shadow, radius + 1, shadowCol);
+
+    SDL_Color fill = hovered ? fillHover : fillNormal;
     drawRoundedRectFilled(r, radius, fill);
-    drawRoundedRectOutline(r, radius, border);
-    if (hovered) {
-        SDL_Color ho = {220,225,235,255};
-        SDL_Rect r2 = { r.x-1, r.y-1, r.w+2, r.h+2 };
-        drawRoundedRectOutline(r2, radius+1, ho);
-    }
+    drawRoundedRectOutline(r, radius, borderColor);
 
-    // icon slot
+    // --- ICON (updated) ---
     int pad = 14;
     int iconBox = r.h - pad*2;
     SDL_Rect iconRect = { r.x + pad, r.y + pad, iconBox, iconBox };
+    int stroke = iconRect.w / 10; if (stroke < 2) stroke = 2;
+    SDL_Color black = (SDL_Color){0,0,0,255};
 
     if (icon == ICON_SOLO) {
-        drawPersonIcon(iconRect.x, iconRect.y, iconRect.w);
+        drawPersonOutline(iconRect.x, iconRect.y, iconRect.w, stroke, black, fill);
     } else if (icon == ICON_DUO) {
-        drawTwoPeopleIcon(iconRect.x, iconRect.y, iconRect.w);
+        drawTwoPeopleOutline(iconRect.x, iconRect.y, iconRect.w, stroke, black, fill);
     }
 
-    // label
-    SDL_Texture* txt = createTextTexture(label, font, textC);
+    // label ... (unchanged)
+    SDL_Texture* txt = createTextTexture(label, font, labelColor);
     int tw, th; SDL_QueryTexture(txt, NULL, NULL, &tw, &th);
     int textLeft = (icon==ICON_NONE) ? (r.x + pad) : (iconRect.x + iconRect.w + pad);
     int textAvail = r.x + r.w - textLeft - pad;
@@ -265,6 +448,7 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     SDL_DestroyTexture(txt);
 }
 
+
 // ---------- Menus ----------
 static int modeMenu(void) {
     SDL_Event event;
@@ -273,7 +457,7 @@ static int modeMenu(void) {
     const int btnH = 64;
     SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH };
     SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };
-    SDL_Rect aboutBtn = { 30, WINDOW_HEIGHT - 80, WINDOW_WIDTH - 60, 48 };
+    SDL_Rect aboutBtn = { 30, WINDOW_HEIGHT - 110, WINDOW_WIDTH - 60, 48 };
 
     for (;;) {
         // black background
@@ -410,14 +594,34 @@ static int checkWin(void) {
 static int isBoardFull(void) { for(int i=0;i<3;i++) for(int j=0;j<3;j++) if(board[i][j]==EMPTY) return 0; return 1; }
 
 static void displayMessage(const char* message) {
-    SDL_Texture* msgTex=createTextTexture(message,font,textLight);
-    int w,h; SDL_QueryTexture(msgTex,NULL,NULL,&w,&h);
-    SDL_Rect dest={WINDOW_WIDTH/2-w/2, WINDOW_HEIGHT/2-h/2, w,h};
-    SDL_RenderCopy(renderer,msgTex,NULL,&dest);
+    // All messages (including "You Win") are now white
+    SDL_Color color = (SDL_Color){255, 255, 255, 255};
+
+    // Larger bold font for emphasis
+    TTF_Font* bigFont = TTF_OpenFont("C:/Windows/Fonts/arialbd.ttf", 48);
+    if (!bigFont) bigFont = font;
+
+    SDL_Texture* msgTex = createTextTexture(message, bigFont, color);
+    int w, h;
+    SDL_QueryTexture(msgTex, NULL, NULL, &w, &h);
+
+    SDL_Rect dest = {
+        (WINDOW_WIDTH - w) / 2,
+        (WINDOW_HEIGHT - h) / 2,
+        w,
+        h
+    };
+
+    SDL_RenderCopy(renderer, msgTex, NULL, &dest);
     SDL_RenderPresent(renderer);
+
     SDL_DestroyTexture(msgTex);
+    if (bigFont != font) TTF_CloseFont(bigFont);
+
     SDL_Delay(1100);
 }
+
+
 
 static void botMove(void) {
     int move = -1;
@@ -548,7 +752,7 @@ static void renderGame(void) {
 
     y += boardRect.h + BOARD_BOTTOM_PAD;
 
-    // 5) Reset Game button (centered under board)
+    // 5) Reset Game button (centered under board, with hover)
     int btnW = WINDOW_WIDTH - 120;
     int btnH = 56;
     resetButton = (SDL_Rect){ (WINDOW_WIDTH-btnW)/2, y, btnW, btnH };
@@ -561,7 +765,7 @@ static void renderGame(void) {
     needsRedraw = 0;
 }
 
-// ===================== MAIN =====================
+// ===================== MAIN LOOP =====================
 int main(int argc, char *argv[]) {
     srand((unsigned)time(NULL));
 
@@ -577,7 +781,7 @@ int main(int argc, char *argv[]) {
     if (!renderer) { fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError()); return 1; }
     SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
 
-    // a font is still used for labels; X/O are vectors now
+    // a font is used for labels; X/O are vectors now
     font = TTF_OpenFont("C:/Windows/Fonts/arial.ttf", 28);
     if (!font) font = TTF_OpenFont("/System/Library/Fonts/SFNS.ttf", 24);
     if (!font) { fprintf(stderr, "Could not open a font.\n"); return 1; }
@@ -587,11 +791,13 @@ int main(int argc, char *argv[]) {
     // Train NB (file must be in same folder)
     nb_train_from_file("tic-tac-toe.data");
 
-    // Menus
+    // ----- Menus -----
+    // mode
     int modeSel = modeMenu();
     if (modeSel==0) goto cleanup;
     gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;
 
+    // difficulty + side (SP only)
     if (gameMode==MODE_SP) {
         for (;;) {
             Difficulty d = difficultyMenu();
@@ -704,13 +910,31 @@ int main(int argc, char *argv[]) {
 
         int winner = checkWin();
         if (winner || isBoardFull()) {
+
+            if (winner) {
+                    SDL_Color lineColor = (SDL_Color){255, 255, 255, 255};  // pure opaque white
+                    animateWinLine(boardRect, lineColor);
+
+            }
+
             updateScores(winner);
-            if (winner == X) displayMessage(gameMode==MODE_SP ? ((playerSide==SIDE_X) ? "You Win!" : "CPU (X) Wins!") : "Player X Wins!");
-            else if (winner == O) displayMessage(gameMode==MODE_SP ? ((playerSide==SIDE_O) ? "You Win!" : "CPU (O) Wins!") : "Player O Wins!");
-            else displayMessage("Draw!");
-            if (winner == X) firstPlayer = 2; else if (winner == O) firstPlayer = 1;
-            currentPlayer = firstPlayer; initBoard(); needsRedraw=1;
+
+            if (winner == X)
+                displayMessage(gameMode == MODE_SP ? ((playerSide == SIDE_X) ? "You Win!" : "CPU (X) Wins!") : "Player X Wins!");
+            else if (winner == O)
+                displayMessage(gameMode == MODE_SP ? ((playerSide == SIDE_O) ? "You Win!" : "CPU (O) Wins!") : "Player O Wins!");
+            else
+                displayMessage("Draw!");
+
+            if (winner == X) firstPlayer = 2;
+            else if (winner == O) firstPlayer = 1;
+
+            currentPlayer = firstPlayer;
+            initBoard();
+            needsRedraw = 1;
+            
         }
+
     }
 
 cleanup:
