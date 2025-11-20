@@ -464,7 +464,11 @@ static int modeMenu(void) {
     const int btnH = 64;
     SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH };
     SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };
+<<<<<<< HEAD
     //SDL_Rect aboutBtn = { 30, WINDOW_HEIGHT - 110, WINDOW_WIDTH - 60, 48 };
+=======
+    // SDL_Rect aboutBtn = { 30, WINDOW_HEIGHT - 110, WINDOW_WIDTH - 60, 48 };
+>>>>>>> 4e201cd100807bcd5b767db7683fd59c36afb736
 
     for (;;) {
         // black background
@@ -482,11 +486,19 @@ static int modeMenu(void) {
         int mx, my; SDL_GetMouseState(&mx, &my);
         int hSolo  = (mx>=soloBtn.x  && mx<=soloBtn.x+soloBtn.w  && my>=soloBtn.y  && my<=soloBtn.y+soloBtn.h);
         int hDuo   = (mx>=duoBtn.x   && mx<=duoBtn.x+duoBtn.w   && my>=duoBtn.y   && my<=duoBtn.y+duoBtn.h);
+<<<<<<< HEAD
         //int hAbout = (mx>=aboutBtn.x && mx<=aboutBtn.x+aboutBtn.w&& my>=aboutBtn.y&& my<=aboutBtn.y+aboutBtn.h);
 
         drawButton(soloBtn,  "Play Solo",          hSolo,  ICON_SOLO);
         drawButton(duoBtn,   "Play with a friend", hDuo,   ICON_DUO);
         //drawButton(aboutBtn, "About",              hAbout, ICON_NONE);
+=======
+        // int hAbout = (mx>=aboutBtn.x && mx<=aboutBtn.x+aboutBtn.w&& my>=aboutBtn.y&& my<=aboutBtn.y+aboutBtn.h);
+
+        drawButton(soloBtn,  "Play Solo",          hSolo,  ICON_SOLO);
+        drawButton(duoBtn,   "Play with a friend", hDuo,   ICON_DUO);
+        // drawButton(aboutBtn, "About",              hAbout, ICON_NONE);
+>>>>>>> 4e201cd100807bcd5b767db7683fd59c36afb736
 
         SDL_RenderPresent(renderer);
 
