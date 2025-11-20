@@ -7,6 +7,8 @@
 #include <time.h>
 
 typedef enum { EMPTY=0, X=1, O=2 } Cell;
+int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece);
+
 
 // --- NB model ---
 typedef struct {
@@ -94,3 +96,48 @@ int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece){
     if (tn>0) best = ties[rand()%tn];
     return best;
 }
+
+// Detect a "one move away" win for the AI and return the cell
+// where the *human* should play to block it.
+// Returns index 0..8 (r*3 + c) or -1 if no immediate threat.
+int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece)
+{
+    if (aiPiece != X && aiPiece != O) return -1;
+
+    Cell humanPiece = (aiPiece == X) ? O : X;
+
+    // All 8 winning lines as flat indices
+    int lines[8][3] = {
+        {0,1,2}, {3,4,5}, {6,7,8},    // rows
+        {0,3,6}, {1,4,7}, {2,5,8},    // cols
+        {0,4,8}, {2,4,6}              // diagonals
+    };
+
+    for (int i = 0; i < 8; ++i) {
+        int aiCount = 0;
+        int humanCount = 0;
+        int emptyIndex = -1;
+
+        for (int j = 0; j < 3; ++j) {
+            int idx = lines[i][j];
+            int r = idx / 3;
+            int c = idx % 3;
+
+            if (b[r][c] == aiPiece) {
+                aiCount++;
+            } else if (b[r][c] == humanPiece) {
+                humanCount++;
+            } else if (b[r][c] == EMPTY) {
+                emptyIndex = idx;
+            }
+        }
+
+        // Threat: AI has 2 in a line, one empty, and no human piece in that line
+        if (aiCount == 2 && humanCount == 0 && emptyIndex != -1) {
+            return emptyIndex;   // This is where the human MUST play to block
+        }
+    }
+
+    return -1;  // no immediate AI win
+}
+

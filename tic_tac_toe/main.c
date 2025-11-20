@@ -42,6 +42,7 @@ typedef enum { SIDE_X=0, SIDE_O=1 } PlayerSide;
 typedef enum { ICON_NONE=0, ICON_SOLO=1, ICON_DUO=2 } ButtonIcon;
 
 // ---- externs from your algorithm modules ----
+int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece);
 int bestMove_minimax(Cell b[3][3], int depthLimit, int blunderPct);
 int bestMove_minimax_for(Cell b[3][3], Cell aiPiece, int depthLimit, int blunderPct);
 int bestMove_naive_bayes(Cell b[3][3]);
@@ -56,6 +57,12 @@ Cell board[3][3];
 SDL_Window *window = NULL;
 SDL_Renderer *renderer = NULL;
 TTF_Font *font = NULL;
+
+
+//------prevent AI from winning 
+int hintIndex = -1;                 // -1 = no hint, 0..8 = r*3+c to highlight
+Uint32 lastHumanActivityTicks = 0;  // when the human last clicked / started turn
+static const SDL_Color hintFill   = { 70,  96, 140, 255 };   // subtle highlight
 
 int currentPlayer = 1;          // 1 = Player X turn, 2 = Player O turn
 GameMode gameMode = MODE_SP;    // default
@@ -457,7 +464,7 @@ static int modeMenu(void) {
     const int btnH = 64;
     SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH };
     SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };
-    SDL_Rect aboutBtn = { 30, WINDOW_HEIGHT - 110, WINDOW_WIDTH - 60, 48 };
+    //SDL_Rect aboutBtn = { 30, WINDOW_HEIGHT - 110, WINDOW_WIDTH - 60, 48 };
 
     for (;;) {
         // black background
@@ -475,11 +482,11 @@ static int modeMenu(void) {
         int mx, my; SDL_GetMouseState(&mx, &my);
         int hSolo  = (mx>=soloBtn.x  && mx<=soloBtn.x+soloBtn.w  && my>=soloBtn.y  && my<=soloBtn.y+soloBtn.h);
         int hDuo   = (mx>=duoBtn.x   && mx<=duoBtn.x+duoBtn.w   && my>=duoBtn.y   && my<=duoBtn.y+duoBtn.h);
-        int hAbout = (mx>=aboutBtn.x && mx<=aboutBtn.x+aboutBtn.w&& my>=aboutBtn.y&& my<=aboutBtn.y+aboutBtn.h);
+        //int hAbout = (mx>=aboutBtn.x && mx<=aboutBtn.x+aboutBtn.w&& my>=aboutBtn.y&& my<=aboutBtn.y+aboutBtn.h);
 
         drawButton(soloBtn,  "Play Solo",          hSolo,  ICON_SOLO);
         drawButton(duoBtn,   "Play with a friend", hDuo,   ICON_DUO);
-        drawButton(aboutBtn, "About",              hAbout, ICON_NONE);
+        //drawButton(aboutBtn, "About",              hAbout, ICON_NONE);
 
         SDL_RenderPresent(renderer);
 
@@ -734,21 +741,31 @@ static void renderGame(void) {
     for (int r=0; r<3; ++r) {
         for (int c=0; c<3; ++c) {
             SDL_Rect cell = { gx + c*(CELL_SIZE + GRID_GAP),
-                              gy + r*(CELL_SIZE + GRID_GAP),
-                              CELL_SIZE, CELL_SIZE };
-            drawRoundedRectFilled(cell, 12, cellFill);
+                            gy + r*(CELL_SIZE + GRID_GAP),
+                            CELL_SIZE, CELL_SIZE };
+
+            int idx = r*3 + c;
+            SDL_Color fill = cellFill;
+
+            // Highlight only if it's the suggested blocking move AND still empty
+            if (idx == hintIndex && board[r][c] == EMPTY) {
+                fill = hintFill;
+            }
+
+            drawRoundedRectFilled(cell, 12, fill);
             drawRoundedRectOutline(cell, 12, cellBorder);
 
             // draw vector X/O
-            int inset = 18;               // margin inside cell
-            int stroke = 14;              // line thickness for X and O ring
+            int inset = 18;
+            int stroke = 14;
             if (board[r][c] == X) {
                 drawXIcon(cell, inset, stroke, xColor);
             } else if (board[r][c] == O) {
-                drawOIcon(cell, inset, stroke, oColor, cellFill); // ring punched with cell color
+                drawOIcon(cell, inset, stroke, oColor, cellFill);
             }
         }
     }
+
 
     y += boardRect.h + BOARD_BOTTOM_PAD;
 
@@ -807,6 +824,7 @@ int main(int argc, char *argv[]) {
             gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;
             if (gameMode != MODE_SP) break;
         }
+        lastHumanActivityTicks = SDL_GetTicks();
         if (gameMode==MODE_SP) {
             playerSide = sideMenu();
             aiPiece = (playerSide==SIDE_X) ? O : X;
@@ -889,8 +907,14 @@ int main(int argc, char *argv[]) {
 
                             board[r][c] = playerPiece;
                             currentPlayer = (currentPlayer == 1) ? 2 : 1;
+
+                            // Human just made a move → clear hint + reset timer
+                            hintIndex = -1;
+                            lastHumanActivityTicks = SDL_GetTicks();
+
                             needsRedraw = 1;
                         }
+
                     }
                 }
             }
@@ -905,8 +929,35 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Hint logic: if AI is one move from winning and human stalls > 5s,
+        // highlight the blocking move for the human.
+        if (gameMode == MODE_SP) {
+            Cell humanPiece = (playerSide == SIDE_X) ? X : O;
+            Cell whoseTurnPiece = (currentPlayer == 1) ? X : O;
+
+            // Only consider hint during human's turn and if game not over
+            if (whoseTurnPiece == humanPiece && checkWin() == 0 && !isBoardFull()) {
+                Uint32 now = SDL_GetTicks();
+
+                if (lastHumanActivityTicks != 0 && (now - lastHumanActivityTicks) > 5000) {
+                    int idx = find_blocking_move_against_ai(board, aiPiece);
+                    if (idx != hintIndex) {
+                        hintIndex = idx;     // can be -1 if no threat
+                        needsRedraw = 1;
+                    }
+                }
+            } else {
+                // Not human's turn or game finished → clear any previous hint
+                if (hintIndex != -1) {
+                    hintIndex = -1;
+                    needsRedraw = 1;
+                }
+            }
+        }
+
         if (needsRedraw) renderGame();
         SDL_Delay(16);
+
 
         int winner = checkWin();
         if (winner || isBoardFull()) {
