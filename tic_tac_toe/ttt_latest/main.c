@@ -30,7 +30,7 @@
 #define MODE_BOTTOM_PAD            24
 #define SCOREBOXES_BOTTOM_PAD      26
 #define TURN_LABEL_BOTTOM_PAD      18
-#define BOARD_BOTTOM_PAD           36   // more space between board and Reset button (↑)
+#define BOARD_BOTTOM_PAD           36   // more space between board and Reset button
 #define WINLINE_THICKNESS          8    //line thickness when user wins
 
 
@@ -350,7 +350,7 @@ static void drawOIcon(SDL_Rect cell, int inset, int thickness, SDL_Color color, 
 
 // ----- Simple person icons used in menu buttons -----
 
-// Stroke-style rounded bar (fills then punches inner to create a clean outline)
+// HELPS TO DRAW ROUNDED RECTANGLE
 static void drawRoundedBarStroke(SDL_Rect r, int radius, int stroke, SDL_Color color, SDL_Color bg) {
     if (radius*2 > r.w) radius = r.w/2;
     if (radius*2 > r.h) radius = r.h/2;
@@ -364,7 +364,7 @@ static void drawRoundedBarStroke(SDL_Rect r, int radius, int stroke, SDL_Color c
     }
 }
 
-// Hollow circle head (ring) with thickness
+// HELP TO DRAW THE CIRCLE
 static void drawHeadRing(int cx, int cy, int outerR, int stroke, SDL_Color color, SDL_Color bg) {
     if (outerR < stroke) outerR = stroke;
     fillRing(cx, cy, outerR, stroke, color, bg);
@@ -456,52 +456,58 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
 }
 
 
-// ---------- Menus ----------
+// ---------- RENDERS MAIN MENU SCREEN RENDERS AND RETURN IF USER SELECT SINGLE PLAYER OR MULTIPLAYER----------
 static int modeMenu(void) {
     SDL_Event event;
+    
+    //DEFINE BUTTON SIZE
+    const int btnW = WINDOW_WIDTH - 120;// ENSURE THAT THERE ARE SIDE MARGINES
+    const int btnH = 64;//SETS THE HEIGHT OF EACH BUTTON
+    SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH }; //sets the SINGLEPLAYER BUTTON
+    SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };//Sets the MULTIPLAYER BUTTON
+    for (;;) { //INFINITE LOOP, READ MOUSE INPUT AND WAIT FOR USE TO SELECT CHOICE
+        //DRAW BACKGROUND, TITLE, CHECK MOUSE POSITION FOR HOVER, RENDER BUTTONS, PROCESS EVENTS DELAY FOR OPTIMIZATION
 
-    const int btnW = WINDOW_WIDTH - 120;
-    const int btnH = 64;
-    SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH };
-    SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };
-    // SDL_Rect aboutBtn = { 30, WINDOW_HEIGHT - 110, WINDOW_WIDTH - 60, 48 };
-
-    for (;;) {
         // black background
         setColor((SDL_Color){0,0,0,255});
         SDL_RenderClear(renderer);
 
-        // title
-        SDL_Texture* title = createTextTexture("Tic- Tac-Toe", font, textLight);
+        // RENDER TIC TAC TOE TITLE
+        SDL_Texture* title = createTextTexture("Tic-Tac-Toe", font, textLight);
         int tw, th; SDL_QueryTexture(title, NULL, NULL, &tw, &th);
         SDL_Rect tpos = { (WINDOW_WIDTH - tw)/2, 80, tw, th };
         SDL_RenderCopy(renderer, title, NULL, &tpos);
         SDL_DestroyTexture(title);
 
-        // hover
+        // HOVER FUNCTION, IF MOUSE COORDINATES ARE IN THE RANGE OF THE BUTTONS SET IT TO HOVER
         int mx, my; SDL_GetMouseState(&mx, &my);
         int hSolo  = (mx>=soloBtn.x  && mx<=soloBtn.x+soloBtn.w  && my>=soloBtn.y  && my<=soloBtn.y+soloBtn.h);
         int hDuo   = (mx>=duoBtn.x   && mx<=duoBtn.x+duoBtn.w   && my>=duoBtn.y   && my<=duoBtn.y+duoBtn.h);
-        // int hAbout = (mx>=aboutBtn.x && mx<=aboutBtn.x+aboutBtn.w&& my>=aboutBtn.y&& my<=aboutBtn.y+aboutBtn.h);
 
+        //INITIALIZE THE BUTTONS
         drawButton(soloBtn,  "Play Solo",          hSolo,  ICON_SOLO);
         drawButton(duoBtn,   "Play with a friend", hDuo,   ICON_DUO);
-        // drawButton(aboutBtn, "About",              hAbout, ICON_NONE);
 
+        //RENDER EVERYTHING TO THE SCREEN
         SDL_RenderPresent(renderer);
 
+
+        //EVENT HANDLER, WHAT HAPPENDS WHEN AN ACTION IS PERFORMED, for example when a user click SP_MODE
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) return 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
-                int x = event.button.x, y = event.button.y;
+                int x = event.button.x, y = event.button.y;//get mouse coordinates check if the coordinates are in the button
                 if (x>=soloBtn.x && x<=soloBtn.x+soloBtn.w && y>=soloBtn.y && y<=soloBtn.y+soloBtn.h)  return MODE_SP;
                 if (x>=duoBtn.x  && x<=duoBtn.x+duoBtn.w  && y>=duoBtn.y  && y<=duoBtn.y+duoBtn.h)   return MODE_MP;
             }
         }
-        SDL_Delay(16);
+        SDL_Delay(16);// DELAY BY 16MS WHICH IS AROUND 60FPS, IF TOO FAST WILL BURN OUT THE CPU
     }
 }
 
+
+
+// ---------- RENDERS MAIN DIFFICULTY LVL SCREEN RENDERS AND RETURN IF USER SELECT EASY, MEDIUM HARD OR BACK BTN----------
 static Difficulty difficultyMenu(void) {
     SDL_Event event;
 
@@ -554,6 +560,8 @@ static Difficulty difficultyMenu(void) {
     }
 }
 
+
+//RENDERS IF USER WANTS TO BE X OR O, FUNCTION RETURNS SIDE_X OR SIDE_O
 static PlayerSide sideMenu(void) {
     SDL_Event event;
     for(;;){
@@ -589,6 +597,10 @@ static PlayerSide sideMenu(void) {
 // ---------- Game helpers ----------
 static void updateScores(int winner) { if (winner==X) scoreX++; else if (winner==O) scoreO++; }
 
+
+//function to check if anyone won or not
+//if statement checks if any row or column is filled up
+//returns the value X or O depending on which line is filled up
 static int checkWin(void) {
     for (int i=0;i<3;i++) {
         if (board[i][0]!=EMPTY && board[i][0]==board[i][1] && board[i][1]==board[i][2]) return board[i][0];
@@ -598,22 +610,25 @@ static int checkWin(void) {
     if (board[0][2]!=EMPTY && board[0][2]==board[1][1] && board[1][1]==board[2][0]) return board[0][2];
     return 0;
 }
+
+
+//checks if the board is filled up    LOOP ROW              COLUMN             return 0 is not full return 1 if full
 static int isBoardFull(void) { for(int i=0;i<3;i++) for(int j=0;j<3;j++) if(board[i][j]==EMPTY) return 0; return 1; }
 
+
+
+// DISPLAYS YOU WIN MESSAGE
 static void displayMessage(const char* message) {
-    // All messages (including "You Win") are now white
     SDL_Color color = (SDL_Color){255, 255, 255, 255};
 
-    // Larger bold font for emphasis
-    TTF_Font* bigFont = TTF_OpenFont("C:/Windows/Fonts/arialbd.ttf", 48);
-    if (!bigFont) bigFont = font;
+    SDL_Texture* msgTex = createTextTexture(message, font, color);
+    if (!msgTex) return;  // optional safety check
 
-    SDL_Texture* msgTex = createTextTexture(message, bigFont, color);
     int w, h;
     SDL_QueryTexture(msgTex, NULL, NULL, &w, &h);
 
     SDL_Rect dest = {
-        (WINDOW_WIDTH - w) / 2,
+        (WINDOW_WIDTH  - w) / 2,
         (WINDOW_HEIGHT - h) / 2,
         w,
         h
@@ -623,7 +638,6 @@ static void displayMessage(const char* message) {
     SDL_RenderPresent(renderer);
 
     SDL_DestroyTexture(msgTex);
-    if (bigFont != font) TTF_CloseFont(bigFont);
 
     SDL_Delay(1100);
 }
@@ -643,6 +657,12 @@ static void botMove(void) {
 }
 
 // ---------- In-game rendering ----------
+//includes, clears to black
+//shows current mode, easy diff or hard
+//shows the in game back button
+//shows the scores
+//shows whose turn
+//reset game button
 static void renderGame(void) {
     // Background
     setColor((SDL_Color){0,0,0,255});
@@ -786,37 +806,55 @@ static void renderGame(void) {
 int main(int argc, char *argv[]) {
     srand((unsigned)time(NULL));
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // linear filter
-    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // Make the render smooth
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");//allows mouse click when im not in the windows
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }//helps to render video
     if (TTF_Init() == -1) { fprintf(stderr, "TTF_Init failed: %s\n", TTF_GetError()); SDL_Quit(); return 1; }
 
-    window = SDL_CreateWindow("Tic Tac Toe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    window = SDL_CreateWindow("Tic Tac Toe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);//creates the window TTT
     if (!window) { fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError()); return 1; }
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!renderer) { fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError()); return 1; }
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);//accelerated with VSYNC
+    if (!renderer) { fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError()); return 1; }// Make it faster
     SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
 
+
     // a font is used for labels; X/O are vectors now
-    font = TTF_OpenFont("C:/Windows/Fonts/arial.ttf", 28);
-    if (!font) font = TTF_OpenFont("/System/Library/Fonts/SFNS.ttf", 24);
-    if (!font) { fprintf(stderr, "Could not open a font.\n"); return 1; }
+    // Load font from local project files (no OS-specific paths)
+    font = NULL;
+
+    const char* fontPaths[] = {
+        "arial.ttf",          // same folder as the .exe
+        "fonts/arial.ttf",    // fonts subfolder
+        "assets/arial.ttf"    // assets subfolder
+    };
+
+    for (int i = 0; i < 3 && !font; ++i) {
+        font = TTF_OpenFont(fontPaths[i], 28);
+    }
+
+    if (!font) {
+        fprintf(stderr, "Could not open any font arial.ttf): %s\n",
+                TTF_GetError());
+        return 1;
+    }
+
     TTF_SetFontHinting(font, TTF_HINTING_LIGHT);
     TTF_SetFontKerning(font, 1);
-
     // Train NB (file must be in same folder)
     nb_train_from_file("tic-tac-toe.data");
 
     // ----- Menus -----
-    // mode
-    int modeSel = modeMenu();
+    // LOAD THE MAIN MENU LET USER SELECT MENU
+    int modeSel = modeMenu();//MODEMENU RETURNS SP OR MP MODE
     if (modeSel==0) goto cleanup;
     gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;
 
-    // difficulty + side (SP only)
+    // SINGLEPLAYER MODE
     if (gameMode==MODE_SP) {
+        //INFINITE LOOP
         for (;;) {
+            //LET USER SELECT EASY MEDIUM OR HARD OR BACK BTN
             Difficulty d = difficultyMenu();
             if (d != DIFF_BACK) { aiDiff = d; break; }
             modeSel = modeMenu();
@@ -838,12 +876,12 @@ int main(int argc, char *argv[]) {
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) running=0;
+            if (event.type == SDL_QUIT) running=0;//IF USER QUIT GAME
 
             if (event.type == SDL_MOUSEBUTTONDOWN) {
-                int mx = event.button.x, my = event.button.y;
+                int mx = event.button.x, my = event.button.y;//CAPTURE COORDINATE OF MOUSE CLICK
 
-                // Back (top-right)
+                // IF USER CLICKS BACK; LOAD MAIN MENU
                 if (mx >= backButton.x && mx <= backButton.x + backButton.w &&
                     my >= backButton.y && my <= backButton.y + backButton.h) {
                     // Go back to main menu flow
@@ -864,11 +902,11 @@ int main(int argc, char *argv[]) {
                             aiPiece = (playerSide==SIDE_X) ? O : X;
                         }
                     }
-                    // reset everything when returning to game
+                    // reset SCORES AND RESET GAME STATE when returning to game
                     scoreX=scoreO=0; initBoard(); firstPlayer=1; currentPlayer=firstPlayer; needsRedraw=1; continue;
                 }
 
-                // Reset button
+                // RESET BUTTON, CLEAR USER SCORE, AND START OVER
                 if (mx>=resetButton.x && mx<=resetButton.x+resetButton.w &&
                     my>=resetButton.y && my<=resetButton.y+resetButton.h) {
                     // Clear board AND scores
@@ -880,7 +918,7 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
 
-                // Board click → map to cell indices using boardRect
+                // CALCULATES WHICH GRID DOES THE USER CLICK. MAPS TO EACH ROW AND COLUMN
                 int gx = boardRect.x + BOARD_PAD;
                 int gy = boardRect.y + BOARD_PAD;
                 int stride = CELL_SIZE + GRID_GAP;
@@ -896,7 +934,7 @@ int main(int argc, char *argv[]) {
 
                     int inCellX = relx % stride;
                     int inCellY = rely % stride;
-
+                    //ENSURE THAT USER INPUT must be inside a real cell (not gap):
                     if (c>=0 && c<3 && r>=0 && r<3 &&
                         inCellX < CELL_SIZE && inCellY < CELL_SIZE) {
 
@@ -954,11 +992,11 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-
+        //END OF HINT FUNCTION
         if (needsRedraw) renderGame();
         SDL_Delay(16);
 
-
+        //CALLS THE ANIMATION WIN LINE
         int winner = checkWin();
         if (winner || isBoardFull()) {
 
@@ -967,7 +1005,7 @@ int main(int argc, char *argv[]) {
                     animateWinLine(boardRect, lineColor);
 
             }
-
+            //UPDATE SCORE BOARD
             updateScores(winner);
 
             if (winner == X)
