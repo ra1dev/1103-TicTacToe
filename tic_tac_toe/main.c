@@ -1,8 +1,4 @@
-// main.c — SDL2 Tic-Tac-Toe (vector X/O, refined hover buttons, taller layout)
-// Changes in this version:
-// 1) Buttons now have a *true hover state*: white → soft grey fill, consistent 1px border,
-//    and a subtle drop shadow (no jaggy edges).
-// 2) Increased window height + extra padding below Reset Game button.
+// main.c — SDL2 Tic-Tac-Toe with Themes + Hint + Win Animation
 // Build (UCRT64):
 //   gcc main.c Minimax.c N_bayes.c -o ttt.exe \
 //     -IC:/msys64/ucrt64/include/SDL2 -LC:/msys64/ucrt64/lib \
@@ -31,16 +27,15 @@
 #define SCOREBOXES_BOTTOM_PAD      26
 #define TURN_LABEL_BOTTOM_PAD      18
 #define BOARD_BOTTOM_PAD           36   // more space between board and Reset button
-#define WINLINE_THICKNESS          8    //line thickness when user wins
-
+#define WINLINE_THICKNESS          8    // line thickness when user wins
 
 // ------- Game types -------
-typedef enum { EMPTY=0, X=1, O=2 } Cell; //DEFINES EACH CELL STATE
+typedef enum { EMPTY=0, X=1, O=2 } Cell;
 typedef enum { MODE_MP=1, MODE_SP=2 } GameMode;
 typedef enum { DIFF_BACK=-1, DIFF_EASY=0, DIFF_MEDIUM=1, DIFF_HARD=2 } Difficulty;
 typedef enum { SIDE_X=0, SIDE_O=1 } PlayerSide;
 typedef enum { ICON_NONE=0, ICON_SOLO=1, ICON_DUO=2 } ButtonIcon;
-
+typedef enum { THEME_DARK=0, THEME_FUN=1 } Theme;
 
 // ---- externs from your algorithm modules ----
 int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece);
@@ -49,9 +44,15 @@ int bestMove_minimax_for(Cell b[3][3], Cell aiPiece, int depthLimit, int blunder
 int bestMove_naive_bayes(Cell b[3][3]);
 int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece);
 void nb_train_from_file(const char* path);
-// forward declaration
-static void renderGame(void);
 
+// forward declarations
+static void renderGame(void);
+static Difficulty difficultyMenu(void);
+static int modeMenu(void);
+static PlayerSide sideMenu(void);
+static Theme themeMenu(void);
+static void setDarkTheme(void);
+static void setFunTheme(void);
 
 // ---- global state ----
 Cell board[3][3];
@@ -59,11 +60,9 @@ SDL_Window *window = NULL;
 SDL_Renderer *renderer = NULL;
 TTF_Font *font = NULL;
 
-
-//------prevent AI from winning 
+// hint system (prevent AI from winning)
 int hintIndex = -1;                 // -1 = no hint, 0..8 = r*3+c to highlight
 Uint32 lastHumanActivityTicks = 0;  // when the human last clicked / started turn
-static const SDL_Color hintFill   = { 70,  96, 140, 255 };   // subtle highlight
 
 int currentPlayer = 1;          // 1 = Player X turn, 2 = Player O turn
 GameMode gameMode = MODE_SP;    // default
@@ -75,25 +74,32 @@ int firstPlayer = 1;            // 1 -> X starts, 2 -> O starts
 
 // UI state
 int needsRedraw = 1;
-SDL_Rect backButton = {0};
+SDL_Rect backButton  = {0};
+SDL_Rect themeButton = {0};
 SDL_Rect resetButton = {0};
-SDL_Rect boardRect  = {0};
+SDL_Rect boardRect   = {0};
 
-// Colors
-static const SDL_Color xColor     = { 60, 230,  90, 255}; // greenish X
-static const SDL_Color oColor     = {250, 160, 170, 255}; // soft pink O
-static const SDL_Color textLight  = {230, 235, 255, 255};
-static const SDL_Color textDark   = { 20,  24,  32, 255};
-static const SDL_Color cardFill   = { 28,  36,  56, 255};
-static const SDL_Color cardBorder = { 70,  80, 110, 255};
-static const SDL_Color boardFill  = { 30,  42,  66, 255};
-static const SDL_Color boardBorder= { 60,  78, 110, 255};
-static const SDL_Color cellFill   = { 40,  54,  82, 255};
-static const SDL_Color cellBorder = { 70,  86, 120, 255};
+// Colors (theme-controlled at runtime)
+SDL_Color xColor;
+SDL_Color oColor;
+SDL_Color textLight;
+SDL_Color textDark;
+SDL_Color cardFill;
+SDL_Color cardBorder;
+SDL_Color boardFill;
+SDL_Color boardBorder;
+SDL_Color cellFill;
+SDL_Color cellBorder;
+SDL_Color bgColor;
+SDL_Color hintFill;
+
+Theme currentTheme = THEME_DARK;
 
 // ---------- basics ----------
 static void initBoard(void) {
-    for (int i=0;i<3;i++) for (int j=0;j<3;j++) board[i][j] = EMPTY;
+    for (int i=0;i<3;i++)
+        for (int j=0;j<3;j++)
+            board[i][j] = EMPTY;
 }
 
 static SDL_Texture* createTextTexture(const char* text, TTF_Font* fnt, SDL_Color color) {
@@ -103,6 +109,39 @@ static SDL_Texture* createTextTexture(const char* text, TTF_Font* fnt, SDL_Color
     return texture;
 }
 
+// ---------- Theme setup ----------
+static void setDarkTheme(void) {
+    bgColor      = (SDL_Color){ 10,  14,  30, 255 };
+    textLight    = (SDL_Color){230, 235, 255, 255};
+    textDark     = (SDL_Color){ 20,  24,  32, 255};
+    cardFill     = (SDL_Color){ 28,  36,  56, 255};
+    cardBorder   = (SDL_Color){ 70,  80, 110, 255};
+    boardFill    = (SDL_Color){ 30,  42,  66, 255};
+    boardBorder  = (SDL_Color){ 60,  78, 110, 255};
+    cellFill     = (SDL_Color){ 40,  54,  82, 255};
+    cellBorder   = (SDL_Color){ 70,  86, 120, 255};
+    xColor       = (SDL_Color){ 60, 230,  90, 255}; // greenish X
+    oColor       = (SDL_Color){250, 160, 170, 255}; // soft pink O
+    hintFill     = (SDL_Color){ 70,  96, 140, 255 }; // subtle highlight
+    currentTheme = THEME_DARK;
+}
+
+static void setFunTheme(void) {
+    // Brighter, pastel kid-friendly theme
+    bgColor      = (SDL_Color){245, 245, 255, 255}; // light background
+    textLight    = (SDL_Color){ 50,  60,  90, 255};
+    textDark     = (SDL_Color){ 30,  40,  70, 255};
+    cardFill     = (SDL_Color){255, 255, 255, 255}; // white cards
+    cardBorder   = (SDL_Color){220, 210, 240, 255};
+    boardFill    = (SDL_Color){255, 250, 240, 255}; // cream board
+    boardBorder  = (SDL_Color){250, 210, 220, 255};
+    cellFill     = (SDL_Color){255, 240, 250, 255};
+    cellBorder   = (SDL_Color){250, 200, 220, 255};
+    xColor       = (SDL_Color){255, 120, 150, 255}; // fun pink X
+    oColor       = (SDL_Color){120, 180, 255, 255}; // sky blue O
+    hintFill     = (SDL_Color){255, 220, 150, 255}; // warm highlight
+    currentTheme = THEME_FUN;
+}
 
 // ---------- Winning Line Animation Helpers ----------
 
@@ -140,10 +179,8 @@ static int getWinLine(int *r1, int *c1, int *r2, int *c2) {
     return 0;
 }
 
-// Animate the winning line (0.6s linear animation)
-// Requires: getWinLine(int*,int*,int*,int*) and renderGame(void)
-// Uses: CELL_SIZE, GRID_GAP, BOARD_PAD, WINLINE_THICKNESS, renderer
-static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor /* pass {255,255,255,255} */) {
+// Smooth animated winning line (0.6s), solid opaque, with subtle overshoot.
+static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor) {
     int r1, c1, r2, c2;
     int winner = getWinLine(&r1, &c1, &r2, &c2);
     if (!winner) return;
@@ -152,41 +189,34 @@ static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor /* pass {255,
     const int bx = boardRect.x + BOARD_PAD;
     const int by = boardRect.y + BOARD_PAD;
 
-    // Centers of the two winning cells
     float x1 = bx + c1 * cellStep + CELL_SIZE * 0.5f;
     float y1 = by + r1 * cellStep + CELL_SIZE * 0.5f;
     float x2 = bx + c2 * cellStep + CELL_SIZE * 0.5f;
     float y2 = by + r2 * cellStep + CELL_SIZE * 0.5f;
 
-    // Extend the line a bit past the cells (overshoot for a polished look)
     float dx = x2 - x1, dy = y2 - y1;
     float len = sqrtf(dx*dx + dy*dy);
     if (len > 0.0f) {
-        float extend = 0.12f * len;   // 12% overshoot
+        float extend = 0.12f * len;
         dx /= len; dy /= len;
         x1 -= dx * extend;  y1 -= dy * extend;
         x2 += dx * extend;  y2 += dy * extend;
     }
 
-    // Fully opaque line (no blending)
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
 
-    const float duration_ms = 600.0f; // 0.6s
+    const float duration_ms = 600.0f;
     Uint32 start = SDL_GetTicks();
     for (;;) {
         float t = (SDL_GetTicks() - start) / duration_ms;
         if (t > 1.0f) t = 1.0f;
 
-        // Redraw the game behind the line each frame
         renderGame();
 
-        // Current end point along the line
         float cx = x1 + (x2 - x1) * t;
         float cy = y1 + (y2 - y1) * t;
 
-        // Draw the animated segment
         SDL_SetRenderDrawColor(renderer, lineColor.r, lineColor.g, lineColor.b, lineColor.a);
-        // thick line by offsetting perpendicular
         {
             float ldx = x2 - x1, ldy = y2 - y1;
             float llen = sqrtf(ldx*ldx + ldy*ldy);
@@ -196,16 +226,16 @@ static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor /* pass {255,
             for (int i = -half; i <= half; ++i) {
                 int ox = (int)roundf(nx * i);
                 int oy = (int)roundf(ny * i);
-                SDL_RenderDrawLine(renderer, (int)(x1 + ox), (int)(y1 + oy), (int)(cx + ox), (int)(cy + oy));
+                SDL_RenderDrawLine(renderer, (int)(x1 + ox), (int)(y1 + oy),
+                                   (int)(cx + ox), (int)(cy + oy));
             }
         }
 
         SDL_RenderPresent(renderer);
         if (t >= 1.0f) break;
-        SDL_Delay(16); // ~60 FPS
+        SDL_Delay(16);
     }
 
-    // Ensure final full-length line is drawn once more (crisp finish)
     renderGame();
     {
         float ldx = x2 - x1, ldy = y2 - y1;
@@ -216,16 +246,12 @@ static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor /* pass {255,
         for (int i = -half; i <= half; ++i) {
             int ox = (int)roundf(nx * i);
             int oy = (int)roundf(ny * i);
-            SDL_RenderDrawLine(renderer, (int)(x1 + ox), (int)(y1 + oy), (int)(x2 + ox), (int)(y2 + oy));
+            SDL_RenderDrawLine(renderer, (int)(x1 + ox), (int)(y1 + oy),
+                               (int)(x2 + ox), (int)(y2 + oy));
         }
     }
     SDL_RenderPresent(renderer);
 }
-
-
-
-
-
 
 // -------------- rounded rect + vector primitives --------------
 static void setColor(SDL_Color c){ SDL_SetRenderDrawColor(renderer,c.r,c.g,c.b,c.a); }
@@ -243,12 +269,12 @@ static void fillCircle(int cx, int cy, int r) {
 }
 
 // Draw a ring with thickness by painting outer then "punching" inner with bg
-static void fillRing(int cx, int cy, int outerR, int thickness, SDL_Color ringColor, SDL_Color bgColor) {
+static void fillRing(int cx, int cy, int outerR, int thickness, SDL_Color ringColor, SDL_Color bgColorLocal) {
     setColor(ringColor);
     fillCircle(cx, cy, outerR);
     int innerR = outerR - thickness;
     if (innerR > 0) {
-        setColor(bgColor);
+        setColor(bgColorLocal);
         fillCircle(cx, cy, innerR);
     }
 }
@@ -260,27 +286,20 @@ static void drawRoundedRectFilled(SDL_Rect r, int rad, SDL_Color fill) {
 
     setColor(fill);
 
-    // center body
     SDL_Rect mid = { r.x + rad, r.y, r.w - 2*rad, r.h };
     SDL_RenderFillRect(renderer, &mid);
 
-    // left/right rectangles
     SDL_Rect left = { r.x, r.y + rad, rad, r.h - 2*rad };
     SDL_Rect right= { r.x + r.w - rad, r.y + rad, rad, r.h - 2*rad };
     SDL_RenderFillRect(renderer, &left);
     SDL_RenderFillRect(renderer, &right);
 
-    // corners via filled quarter-circles
     for (int dy = -rad; dy <= rad; ++dy) {
         int dx = (int)(sqrt((double)rad*rad - (double)dy*dy) + 0.5);
-        // TL
-        hline(r.x + rad - dx, r.x + rad, r.y + rad - dy);
-        // TR
-        hline(r.x + r.w - rad, r.x + r.w - rad + dx, r.y + rad - dy);
-        // BL
-        hline(r.x + rad - dx, r.x + rad, r.y + r.h - rad + dy);
-        // BR
-        hline(r.x + r.w - rad, r.x + r.w - rad + dx, r.y + r.h - rad + dy);
+        hline(r.x + rad - dx,           r.x + rad,           r.y + rad - dy);
+        hline(r.x + r.w - rad,          r.x + r.w - rad + dx,r.y + rad - dy);
+        hline(r.x + rad - dx,           r.x + rad,           r.y + r.h - rad + dy);
+        hline(r.x + r.w - rad,          r.x + r.w - rad + dx,r.y + r.h - rad + dy);
     }
 }
 
@@ -291,37 +310,30 @@ static void drawRoundedRectOutline(SDL_Rect r, int rad, SDL_Color border) {
 
     setColor(border);
 
-    // straight edges
     SDL_RenderDrawLine(renderer, r.x + rad, r.y, r.x + r.w - rad - 1, r.y);
     SDL_RenderDrawLine(renderer, r.x + rad, r.y + r.h - 1, r.x + r.w - rad - 1, r.y + r.h - 1);
     SDL_RenderDrawLine(renderer, r.x, r.y + rad, r.x, r.y + r.h - rad - 1);
     SDL_RenderDrawLine(renderer, r.x + r.w - 1, r.y + rad, r.x + r.w - 1, r.y + r.h - rad - 1);
 
-    // corners
     for (int a = 0; a <= rad; ++a) {
         int b = (int)(sqrt((double)rad*rad - (double)a*a) + 0.5);
-        // TL
-        SDL_RenderDrawPoint(renderer, r.x + rad - a, r.y + rad - b);
-        SDL_RenderDrawPoint(renderer, r.x + rad - b, r.y + rad - a);
-        // TR
+        SDL_RenderDrawPoint(renderer, r.x + rad - a,         r.y + rad - b);
+        SDL_RenderDrawPoint(renderer, r.x + rad - b,         r.y + rad - a);
         SDL_RenderDrawPoint(renderer, r.x + r.w - rad - 1 + a, r.y + rad - b);
         SDL_RenderDrawPoint(renderer, r.x + r.w - rad - 1 + b, r.y + rad - a);
-        // BL
-        SDL_RenderDrawPoint(renderer, r.x + rad - a, r.y + r.h - rad - 1 + b);
-        SDL_RenderDrawPoint(renderer, r.x + rad - b, r.y + r.h - rad - 1 + a);
-        // BR
+        SDL_RenderDrawPoint(renderer, r.x + rad - a,         r.y + r.h - rad - 1 + b);
+        SDL_RenderDrawPoint(renderer, r.x + rad - b,         r.y + r.h - rad - 1 + a);
         SDL_RenderDrawPoint(renderer, r.x + r.w - rad - 1 + a, r.y + r.h - rad - 1 + b);
         SDL_RenderDrawPoint(renderer, r.x + r.w - rad - 1 + b, r.y + r.h - rad - 1 + a);
     }
 }
 
 // --- Vector icons ---
-// X: two thick diagonals drawn by offsetting lines around the centerline
 static void drawThickDiag(int x1, int y1, int x2, int y2, int thickness, SDL_Color color) {
     setColor(color);
     double dx = (double)(x2 - x1), dy = (double)(y2 - y1);
     double len = sqrt(dx*dx + dy*dy); if (len == 0) return;
-    double nx = -dy/len, ny = dx/len; // unit normal
+    double nx = -dy/len, ny = dx/len;
     int half = thickness/2;
     for (int t = -half; t <= half; ++t) {
         int ox = (int)round(nx * t);
@@ -339,18 +351,15 @@ static void drawXIcon(SDL_Rect cell, int inset, int thickness, SDL_Color color) 
     drawThickDiag(x0, y1, x1, y0, thickness, color);
 }
 
-// O: draw a ring (outer – inner) with specified thickness
-static void drawOIcon(SDL_Rect cell, int inset, int thickness, SDL_Color color, SDL_Color bgColor) {
+static void drawOIcon(SDL_Rect cell, int inset, int thickness, SDL_Color color, SDL_Color bgColorLocal) {
     int cx = cell.x + cell.w/2;
     int cy = cell.y + cell.h/2;
     int outerR = (cell.w < cell.h ? cell.w : cell.h)/2 - inset;
     if (outerR < thickness) outerR = thickness;
-    fillRing(cx, cy, outerR, thickness, color, bgColor);
+    fillRing(cx, cy, outerR, thickness, color, bgColorLocal);
 }
 
 // ----- Simple person icons used in menu buttons -----
-
-// HELPS TO DRAW ROUNDED RECTANGLE
 static void drawRoundedBarStroke(SDL_Rect r, int radius, int stroke, SDL_Color color, SDL_Color bg) {
     if (radius*2 > r.w) radius = r.w/2;
     if (radius*2 > r.h) radius = r.h/2;
@@ -364,26 +373,19 @@ static void drawRoundedBarStroke(SDL_Rect r, int radius, int stroke, SDL_Color c
     }
 }
 
-// HELP TO DRAW THE CIRCLE
 static void drawHeadRing(int cx, int cy, int outerR, int stroke, SDL_Color color, SDL_Color bg) {
     if (outerR < stroke) outerR = stroke;
     fillRing(cx, cy, outerR, stroke, color, bg);
 }
 
-
-
-
-// Outline single-person ICON (Material/Fluent-style)
+// Outline single-person
 static void drawPersonOutline(int x, int y, int size, int stroke, SDL_Color col, SDL_Color bg) {
-    // scale
     if (stroke < 1) stroke = 1;
-    int headR   = (int)round(size * 0.28);        // head radius
+    int headR   = (int)round(size * 0.28);
     int cx      = x + size/2;
-    int cy      = y + (int)round(size * 0.28);    // head center Y
-    // head ring
+    int cy      = y + (int)round(size * 0.28);
     fillRing(cx, cy, headR, stroke, col, bg);
 
-    // shoulders/torso as rounded bar stroke (open on top)
     int barW = (int)round(size * 0.88);
     int barH = (int)round(size * 0.40);
     int barY = y + (int)round(size * 0.52);
@@ -391,26 +393,22 @@ static void drawPersonOutline(int x, int y, int size, int stroke, SDL_Color col,
     int barR = barH/2;
     drawRoundedBarStroke(shoulders, barR, stroke, col, bg);
 
-    // carve a small "neck gap" so ring and bar don't merge
     int neckW = (int)round(size * 0.34);
     int neckH = (int)round(stroke + 2);
     SDL_Rect neck = { cx - neckW/2, cy + headR - neckH/2, neckW, neckH };
     drawRoundedRectFilled(neck, neckH/2, bg);
 }
 
-// Outline two-people (rear + front) with slight offset, both stroked
+// Outline two-people
 static void drawTwoPeopleOutline(int x, int y, int size, int stroke, SDL_Color col, SDL_Color bg) {
-    // back person (slightly smaller + offset up-right)
     int bSize = (int)round(size * 0.86);
     int bx = x + (int)round(size * 0.24);
     int by = y - (int)round(size * 0.08);
     drawPersonOutline(bx, by, bSize, stroke, col, bg);
-
-    // front person
     drawPersonOutline(x, y, size, stroke, col, bg);
 }
 
-// -------------- Rounded button with hover with single plyer, multiplayer icon--------------
+// -------------- Rounded button with refined hover --------------
 static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon icon) {
     const int radius = 14;
     const SDL_Color fillNormal  = {252,252,255,255};
@@ -418,7 +416,6 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     const SDL_Color borderColor = {184,192,208,255};
     const SDL_Color labelColor  = { 20, 24, 32,255};
 
-    // shadow + fill + border ... (unchanged)
     SDL_Rect shadow = { r.x, r.y + 2, r.w, r.h };
     SDL_Color shadowCol = {0,0,0,55};
     drawRoundedRectFilled(shadow, radius + 1, shadowCol);
@@ -427,7 +424,6 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     drawRoundedRectFilled(r, radius, fill);
     drawRoundedRectOutline(r, radius, borderColor);
 
-    // --- ICON (updated) ---
     int pad = 14;
     int iconBox = r.h - pad*2;
     SDL_Rect iconRect = { r.x + pad, r.y + pad, iconBox, iconBox };
@@ -440,7 +436,6 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
         drawTwoPeopleOutline(iconRect.x, iconRect.y, iconRect.w, stroke, black, fill);
     }
 
-    // label ... (unchanged)
     SDL_Texture* txt = createTextTexture(label, font, labelColor);
     int tw, th; SDL_QueryTexture(txt, NULL, NULL, &tw, &th);
     int textLeft = (icon==ICON_NONE) ? (r.x + pad) : (iconRect.x + iconRect.w + pad);
@@ -451,59 +446,46 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     SDL_DestroyTexture(txt);
 }
 
-
-// ---------- RENDERS MAIN MENU SCREEN RENDERS AND RETURN IF USER SELECT SINGLE PLAYER OR MULTIPLAYER----------
+// ---------- Menus ----------
 static int modeMenu(void) {
     SDL_Event event;
-    
-    //DEFINE BUTTON SIZE
-    const int btnW = WINDOW_WIDTH - 120;// ENSURE THAT THERE ARE SIDE MARGINES
-    const int btnH = 64;//SETS THE HEIGHT OF EACH BUTTON
-    SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH }; //sets the SINGLEPLAYER BUTTON
-    SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };//Sets the MULTIPLAYER BUTTON
-    for (;;) { //INFINITE LOOP, READ MOUSE INPUT AND WAIT FOR USE TO SELECT CHOICE
-        //DRAW BACKGROUND, TITLE, CHECK MOUSE POSITION FOR HOVER, RENDER BUTTONS, PROCESS EVENTS DELAY FOR OPTIMIZATION
 
-        // black background
-        setColor((SDL_Color){0,0,0,255});
+    const int btnW = WINDOW_WIDTH - 120;
+    const int btnH = 64;
+    SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH };
+    SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };
+
+    for (;;) {
+        setColor(bgColor);
         SDL_RenderClear(renderer);
 
-        // RENDER TIC TAC TOE TITLE
         SDL_Texture* title = createTextTexture("Tic-Tac-Toe", font, textLight);
         int tw, th; SDL_QueryTexture(title, NULL, NULL, &tw, &th);
         SDL_Rect tpos = { (WINDOW_WIDTH - tw)/2, 80, tw, th };
         SDL_RenderCopy(renderer, title, NULL, &tpos);
         SDL_DestroyTexture(title);
 
-        // HOVER FUNCTION, IF MOUSE COORDINATES ARE IN THE RANGE OF THE BUTTONS SET IT TO HOVER
         int mx, my; SDL_GetMouseState(&mx, &my);
         int hSolo  = (mx>=soloBtn.x  && mx<=soloBtn.x+soloBtn.w  && my>=soloBtn.y  && my<=soloBtn.y+soloBtn.h);
         int hDuo   = (mx>=duoBtn.x   && mx<=duoBtn.x+duoBtn.w   && my>=duoBtn.y   && my<=duoBtn.y+duoBtn.h);
 
-        //INITIALIZE THE BUTTONS
         drawButton(soloBtn,  "Play Solo",          hSolo,  ICON_SOLO);
         drawButton(duoBtn,   "Play with a friend", hDuo,   ICON_DUO);
 
-        //RENDER EVERYTHING TO THE SCREEN
         SDL_RenderPresent(renderer);
 
-
-        //EVENT HANDLER, WHAT HAPPENDS WHEN AN ACTION IS PERFORMED, for example when a user click SP_MODE
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) return 0;
             if (event.type == SDL_MOUSEBUTTONDOWN) {
-                int x = event.button.x, y = event.button.y;//get mouse coordinates check if the coordinates are in the button
+                int x = event.button.x, y = event.button.y;
                 if (x>=soloBtn.x && x<=soloBtn.x+soloBtn.w && y>=soloBtn.y && y<=soloBtn.y+soloBtn.h)  return MODE_SP;
                 if (x>=duoBtn.x  && x<=duoBtn.x+duoBtn.w  && y>=duoBtn.y  && y<=duoBtn.y+duoBtn.h)   return MODE_MP;
             }
         }
-        SDL_Delay(16);// DELAY BY 16MS WHICH IS AROUND 60FPS, IF TOO FAST WILL BURN OUT THE CPU
+        SDL_Delay(16);
     }
 }
 
-
-
-// ---------- RENDERS MAIN DIFFICULTY LVL SCREEN RENDERS AND RETURN IF USER SELECT EASY, MEDIUM HARD OR BACK BTN----------
 static Difficulty difficultyMenu(void) {
     SDL_Event event;
 
@@ -518,11 +500,11 @@ static Difficulty difficultyMenu(void) {
 
     const int backW = 120, backH = 46, pad = 24;
     SDL_Rect backBtn = { WINDOW_WIDTH - backW - pad, WINDOW_HEIGHT - backH - pad, backW, backH };
-    //INFINITE LOOP
+
     for (;;) {
-        setColor((SDL_Color){0,0,0,255});
+        setColor(bgColor);
         SDL_RenderClear(renderer);
-        //RENDER THE TEXT SELECT DIFFICULTY
+
         SDL_Texture* title = createTextTexture("Select Difficulty", font, textLight);
         int tw, th; SDL_QueryTexture(title, NULL, NULL, &tw, &th);
         SDL_Rect tpos = { (WINDOW_WIDTH - tw)/2, 80, tw, th };
@@ -556,17 +538,65 @@ static Difficulty difficultyMenu(void) {
     }
 }
 
+// Theme selection menu
+static Theme themeMenu(void) {
+    SDL_Event event;
 
+    const int btnW = WINDOW_WIDTH - 120;
+    const int btnH = 64;
+    const int centerX = (WINDOW_WIDTH - btnW)/2;
+    const int startY  = WINDOW_HEIGHT/2 - btnH - 12;
 
-//RENDERS IF USER WANTS TO BE X OR O, FUNCTION RETURNS SIDE_X OR SIDE_O
+    SDL_Rect darkBtn = { centerX, startY,             btnW, btnH };
+    SDL_Rect funBtn  = { centerX, startY + btnH + 24, btnW, btnH };
+
+    for (;;) {
+        setColor(bgColor);
+        SDL_RenderClear(renderer);
+
+        SDL_Texture* title = createTextTexture("Select Theme", font, textLight);
+        int tw, th; SDL_QueryTexture(title, NULL, NULL, &tw, &th);
+        SDL_Rect tpos = { (WINDOW_WIDTH - tw)/2, 80, tw, th };
+        SDL_RenderCopy(renderer, title, NULL, &tpos);
+        SDL_DestroyTexture(title);
+
+        int mx, my; SDL_GetMouseState(&mx, &my);
+        int hDark = (mx>=darkBtn.x && mx<=darkBtn.x+darkBtn.w &&
+                     my>=darkBtn.y && my<=darkBtn.y+darkBtn.h);
+        int hFun  = (mx>=funBtn.x  && mx<=funBtn.x +funBtn.w &&
+                     my>=funBtn.y  && my<=funBtn.y +funBtn.h);
+
+        drawButton(darkBtn, "Dark Theme", hDark, ICON_NONE);
+        drawButton(funBtn,  "Fun Theme",  hFun,  ICON_NONE);
+
+        SDL_RenderPresent(renderer);
+
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) return currentTheme;
+            if (event.type == SDL_MOUSEBUTTONDOWN) {
+                int x = event.button.x, y = event.button.y;
+                if (x>=darkBtn.x && x<=darkBtn.x+darkBtn.w &&
+                    y>=darkBtn.y && y<=darkBtn.y+darkBtn.h)
+                    return THEME_DARK;
+                if (x>=funBtn.x && x<=funBtn.x+funBtn.w &&
+                    y>=funBtn.y && y<=funBtn.y+funBtn.h)
+                    return THEME_FUN;
+            }
+        }
+        SDL_Delay(16);
+    }
+}
+
+// Side selection menu
 static PlayerSide sideMenu(void) {
     SDL_Event event;
     for(;;){
-        setColor((SDL_Color){0,0,0,255});
+        setColor(bgColor);
         SDL_RenderClear(renderer);
-        SDL_Texture* t0=createTextTexture("Choose Your Side",font,textLight);
-        SDL_Texture* t1=createTextTexture("Play as X",font,textLight);
-        SDL_Texture* t2=createTextTexture("Play as O",font,textLight);
+
+        SDL_Texture* t0 = createTextTexture("Choose Your Side", font, textLight);
+        SDL_Texture* t1 = createTextTexture("Play as X",        font, textLight);
+        SDL_Texture* t2 = createTextTexture("Play as O",        font, textLight);
         int w0,h0,w1,h1,w2,h2;
         SDL_QueryTexture(t0,NULL,NULL,&w0,&h0);
         SDL_QueryTexture(t1,NULL,NULL,&w1,&h1);
@@ -579,11 +609,20 @@ static PlayerSide sideMenu(void) {
         SDL_RenderCopy(renderer,t2,NULL,&r2);
         SDL_RenderPresent(renderer);
         while(SDL_PollEvent(&event)){
-            if(event.type==SDL_QUIT) { SDL_DestroyTexture(t0); SDL_DestroyTexture(t1); SDL_DestroyTexture(t2); return SIDE_X; }
+            if(event.type==SDL_QUIT) {
+                SDL_DestroyTexture(t0); SDL_DestroyTexture(t1); SDL_DestroyTexture(t2);
+                return SIDE_X;
+            }
             if(event.type==SDL_MOUSEBUTTONDOWN){
                 int mx=event.button.x,my=event.button.y;
-                if(mx>=r1.x&&mx<=r1.x+r1.w&&my>=r1.y&&my<=r1.y+r1.h){ SDL_DestroyTexture(t0); SDL_DestroyTexture(t1); SDL_DestroyTexture(t2); return SIDE_X; }
-                if(mx>=r2.x&&mx<=r2.x+r2.w&&my>=r2.y&&my<=r2.y+r2.h){ SDL_DestroyTexture(t0); SDL_DestroyTexture(t1); SDL_DestroyTexture(t2); return SIDE_O; }
+                if(mx>=r1.x&&mx<=r1.x+r1.w&&my>=r1.y&&my<=r1.y+r1.h){
+                    SDL_DestroyTexture(t0); SDL_DestroyTexture(t1); SDL_DestroyTexture(t2);
+                    return SIDE_X;
+                }
+                if(mx>=r2.x&&mx<=r2.x+r2.w&&my>=r2.y&&my<=r2.y+r2.h){
+                    SDL_DestroyTexture(t0); SDL_DestroyTexture(t1); SDL_DestroyTexture(t2);
+                    return SIDE_O;
+                }
             }
         }
         SDL_DestroyTexture(t0); SDL_DestroyTexture(t1); SDL_DestroyTexture(t2);
@@ -591,33 +630,32 @@ static PlayerSide sideMenu(void) {
     }
 }
 
-// ---------- game helper to update score----------
-static void updateScores(int winner) { if (winner==X) scoreX++; else if (winner==O) scoreO++; }
+// ---------- Game helpers ----------
+static void updateScores(int winner) {
+    if (winner==X) scoreX++;
+    else if (winner==O) scoreO++;
+}
 
-
-//function to check if anyone won or not
-//if statement checks if any row or column is filled up
-//returns the value X or O depending on which line is filled up
 static int checkWin(void) {
     for (int i=0;i<3;i++) {
-        if (board[i][0]!=EMPTY && board[i][0]==board[i][1] && board[i][1]==board[i][2]) return board[i][0]; //returns O or X depending on who won
+        if (board[i][0]!=EMPTY && board[i][0]==board[i][1] && board[i][1]==board[i][2]) return board[i][0];
         if (board[0][i]!=EMPTY && board[0][i]==board[1][i] && board[1][i]==board[2][i]) return board[0][i];
     }
-    if (board[0][0]!=EMPTY && board[0][0]==board[1][1] && board[1][1]==board[2][2]) return board[0][0]; //check for a win if diagonal is filled up with same element
-    if (board[0][2]!=EMPTY && board[0][2]==board[1][1] && board[1][1]==board[2][0]) return board[0][2]; // same for other diagonal
+    if (board[0][0]!=EMPTY && board[0][0]==board[1][1] && board[1][1]==board[2][2]) return board[0][0];
+    if (board[0][2]!=EMPTY && board[0][2]==board[1][1] && board[1][1]==board[2][0]) return board[0][2];
     return 0;
 }
 
-//checks if the board is filled up    LOOP ROW              COLUMN             return 0 is not full return 1 if full
-static int isBoardFull(void) { for(int i=0;i<3;i++) for(int j=0;j<3;j++) if(board[i][j]==EMPTY) return 0; return 1; }
+static int isBoardFull(void) {
+    for(int i=0;i<3;i++)
+        for(int j=0;j<3;j++)
+            if(board[i][j]==EMPTY) return 0;
+    return 1;
+}
 
-
-// DISPLAYS YOU WIN MESSAGE
 static void displayMessage(const char* message) {
-    SDL_Color color = (SDL_Color){255, 255, 255, 255};
-
-    SDL_Texture* msgTex = createTextTexture(message, font, color);
-    if (!msgTex) return;  // optional safety check
+    SDL_Texture* msgTex = createTextTexture(message, font, textLight);
+    if (!msgTex) return;
 
     int w, h;
     SDL_QueryTexture(msgTex, NULL, NULL, &w, &h);
@@ -633,18 +671,14 @@ static void displayMessage(const char* message) {
     SDL_RenderPresent(renderer);
 
     SDL_DestroyTexture(msgTex);
-
     SDL_Delay(1100);
 }
-
-
-
 
 static void botMove(void) {
     int move = -1;
     if (aiDiff == DIFF_EASY)         move = bestMove_naive_bayes_for(board, aiPiece);
     else if (aiDiff == DIFF_MEDIUM)  move = bestMove_minimax_for(board, aiPiece, 3, 20);
-    else                              move = bestMove_minimax_for(board, aiPiece, -1, 0);
+    else                             move = bestMove_minimax_for(board, aiPiece, -1, 0);
     if (move != -1) {
         int i = move / 3, j = move % 3;
         board[i][j] = aiPiece;
@@ -653,46 +687,46 @@ static void botMove(void) {
 }
 
 // ---------- In-game rendering ----------
-//includes, clears to black
-//shows current mode, easy diff or hard
-//shows the in game back button
-//shows the scores
-//shows whose turn
-//reset game button
-
 static void renderGame(void) {
-    // Clear Background to black
-    setColor((SDL_Color){0,0,0,255});
+    setColor(bgColor);
     SDL_RenderClear(renderer);
 
     int y = PADDING_TOP;
 
     // 1) Top: Mode text (centered)
-    const char* modeText = "Multiplayer Mode"; //default to multiplayer mode
+    const char* modeText = "Multiplayer Mode";
     char buf[64];
     if (gameMode == MODE_SP) {
         const char* m = (aiDiff==DIFF_EASY)?"Easy Mode":(aiDiff==DIFF_MEDIUM)?"Medium Mode":"Hard Mode";
         snprintf(buf, sizeof(buf), "%s", m);
         modeText = buf;
     }
-
-
     SDL_Texture* modeTex = createTextTexture(modeText, font, textLight);
     int mw, mh; SDL_QueryTexture(modeTex, NULL, NULL, &mw, &mh);
     SDL_Rect modePos = { (WINDOW_WIDTH-mw)/2, y, mw, mh };
     SDL_RenderCopy(renderer, modeTex, NULL, &modePos);
     SDL_DestroyTexture(modeTex);
 
-    // Back (top-right)
-    SDL_Texture* backTex = createTextTexture("Back", font, textLight);
-    int bw,bh; SDL_QueryTexture(backTex,NULL,NULL,&bw,&bh);
-    backButton = (SDL_Rect){ WINDOW_WIDTH - bw - 16, y, bw, bh };
-    SDL_RenderCopy(renderer, backTex, NULL, &backButton);
+    // Theme + Back (top-right)
+    SDL_Texture* backTex  = createTextTexture("Back",  font, textLight);
+    SDL_Texture* themeTex = createTextTexture("Theme", font, textLight);
+
+    int bw,bh, tw2,th2;
+    SDL_QueryTexture(backTex,  NULL, NULL, &bw,  &bh);
+    SDL_QueryTexture(themeTex, NULL, NULL, &tw2, &th2);
+
+    backButton  = (SDL_Rect){ WINDOW_WIDTH - bw - 16, y, bw,  bh };
+    themeButton = (SDL_Rect){ backButton.x - tw2 - 24, y, tw2, th2 };
+
+    SDL_RenderCopy(renderer, themeTex, NULL, &themeButton);
+    SDL_RenderCopy(renderer, backTex,  NULL, &backButton);
+
+    SDL_DestroyTexture(themeTex);
     SDL_DestroyTexture(backTex);
 
     y += mh + MODE_BOTTOM_PAD;
 
-    // 2) Two score boxes (left/right)
+    // 2) Two score boxes
     int cardW = 170, cardH = 54, gap = 14;
     SDL_Rect leftCard  = { (WINDOW_WIDTH/2) - cardW - gap/2, y, cardW, cardH };
     SDL_Rect rightCard = { (WINDOW_WIDTH/2) + gap/2,         y, cardW, cardH };
@@ -754,14 +788,13 @@ static void renderGame(void) {
     drawRoundedRectFilled(boardRect, 16, boardFill);
     drawRoundedRectOutline(boardRect, 16, boardBorder);
 
-    // grid cells and vector pieces
     int gx = boardRect.x + BOARD_PAD;
     int gy = boardRect.y + BOARD_PAD;
     for (int r=0; r<3; ++r) {
         for (int c=0; c<3; ++c) {
             SDL_Rect cell = { gx + c*(CELL_SIZE + GRID_GAP),
-                            gy + r*(CELL_SIZE + GRID_GAP),
-                            CELL_SIZE, CELL_SIZE };
+                              gy + r*(CELL_SIZE + GRID_GAP),
+                              CELL_SIZE, CELL_SIZE };
 
             int idx = r*3 + c;
             SDL_Color fill = cellFill;
@@ -774,7 +807,6 @@ static void renderGame(void) {
             drawRoundedRectFilled(cell, 12, fill);
             drawRoundedRectOutline(cell, 12, cellBorder);
 
-            // draw vector X/O
             int inset = 18;
             int stroke = 14;
             if (board[r][c] == X) {
@@ -785,10 +817,9 @@ static void renderGame(void) {
         }
     }
 
-
     y += boardRect.h + BOARD_BOTTOM_PAD;
 
-    // 5) Reset Game button (centered under board, with hover)
+    // 5) Reset Game button
     int btnW = WINDOW_WIDTH - 120;
     int btnH = 56;
     resetButton = (SDL_Rect){ (WINDOW_WIDTH-btnW)/2, y, btnW, btnH };
@@ -805,52 +836,62 @@ static void renderGame(void) {
 int main(int argc, char *argv[]) {
     srand((unsigned)time(NULL));
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // Make the render smooth
-    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");//allows mouse click when im not in the windows
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }//helps to render video
-    if (TTF_Init() == -1) { fprintf(stderr, "TTF_Init failed: %s\n", TTF_GetError()); SDL_Quit(); return 1; }
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+        return 1;
+    }
+    if (TTF_Init() == -1) {
+        fprintf(stderr, "TTF_Init failed: %s\n", TTF_GetError());
+        SDL_Quit();
+        return 1;
+    }
 
-    window = SDL_CreateWindow("Tic Tac Toe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);//creates the window TTT
-    if (!window) { fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError()); return 1; }
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);//accelerated with VSYNC
-    if (!renderer) { fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError()); return 1; }// Make it faster
+    window = SDL_CreateWindow("Tic Tac Toe",
+                              SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                              WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    if (!window) {
+        fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+        return 1;
+    }
+    renderer = SDL_CreateRenderer(window, -1,
+                                  SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer) {
+        fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+        return 1;
+    }
     SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
 
-    // a font is used for labels; X/O are vectors now
-    // Load font from local project files (no OS-specific paths)
     font = NULL;
-
     const char* fontPaths[] = {
-        "arial.ttf",          // same folder as the .exe
-        "fonts/arial.ttf",    // fonts subfolder
-        "assets/arial.ttf"    // assets subfolder
+        "arial.ttf",
+        "fonts/arial.ttf",
+        "assets/arial.ttf"
     };
-
     for (int i = 0; i < 3 && !font; ++i) {
         font = TTF_OpenFont(fontPaths[i], 28);
     }
-
     if (!font) {
-        fprintf(stderr, "Could not open any font arial.ttf): %s\n",
-                TTF_GetError());
+        fprintf(stderr, "Could not open any font arial.ttf): %s\n", TTF_GetError());
         return 1;
     }
 
     TTF_SetFontHinting(font, TTF_HINTING_LIGHT);
     TTF_SetFontKerning(font, 1);
 
+    // default theme (can be changed later by themeMenu)
+    setDarkTheme();
 
     // Train NB (file must be in same folder)
     nb_train_from_file("tic-tac-toe.data");
 
     // ----- Menus -----
-    // mode
     int modeSel = modeMenu();
     if (modeSel==0) goto cleanup;
     gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;
 
-    // difficulty + side (SP only)
     if (gameMode==MODE_SP) {
         for (;;) {
             Difficulty d = difficultyMenu();
@@ -860,12 +901,13 @@ int main(int argc, char *argv[]) {
             gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;
             if (gameMode != MODE_SP) break;
         }
-        lastHumanActivityTicks = SDL_GetTicks();
         if (gameMode==MODE_SP) {
             playerSide = sideMenu();
             aiPiece = (playerSide==SIDE_X) ? O : X;
         }
     }
+
+    lastHumanActivityTicks = SDL_GetTicks();
 
     int running = 1;
     initBoard();
@@ -879,12 +921,25 @@ int main(int argc, char *argv[]) {
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = event.button.x, my = event.button.y;
 
-                // Back (top-right)
+                // Theme button
+                if (mx >= themeButton.x && mx <= themeButton.x + themeButton.w &&
+                    my >= themeButton.y && my <= themeButton.y + themeButton.h) {
+
+                    Theme chosen = themeMenu();
+                    if (chosen == THEME_DARK) setDarkTheme();
+                    else if (chosen == THEME_FUN) setFunTheme();
+                    needsRedraw = 1;
+                    continue;
+                }
+
+                // Back button
                 if (mx >= backButton.x && mx <= backButton.x + backButton.w &&
                     my >= backButton.y && my <= backButton.y + backButton.h) {
-                    // Go back to main menu flow
-                    int newMode = modeMenu(); if (newMode==0) { running=0; break; }
+
+                    int newMode = modeMenu();
+                    if (newMode==0) { running=0; break; }
                     gameMode = (newMode==MODE_SP)? MODE_SP: MODE_MP;
+
                     if (gameMode==MODE_SP) {
                         for (;;) {
                             Difficulty d = difficultyMenu();
@@ -900,14 +955,18 @@ int main(int argc, char *argv[]) {
                             aiPiece = (playerSide==SIDE_X) ? O : X;
                         }
                     }
-                    // reset everything when returning to game
-                    scoreX=scoreO=0; initBoard(); firstPlayer=1; currentPlayer=firstPlayer; needsRedraw=1; continue;
+
+                    scoreX=scoreO=0;
+                    initBoard();
+                    firstPlayer=1;
+                    currentPlayer=firstPlayer;
+                    needsRedraw=1;
+                    continue;
                 }
 
                 // Reset button
                 if (mx>=resetButton.x && mx<=resetButton.x+resetButton.w &&
                     my>=resetButton.y && my<=resetButton.y+resetButton.h) {
-                    // Clear board AND scores
                     scoreX = scoreO = 0;
                     initBoard();
                     firstPlayer = 1;
@@ -916,7 +975,7 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
 
-                // Board click → map to cell indices using boardRect
+                // Board clicks
                 int gx = boardRect.x + BOARD_PAD;
                 int gy = boardRect.y + BOARD_PAD;
                 int stride = CELL_SIZE + GRID_GAP;
@@ -944,13 +1003,11 @@ int main(int argc, char *argv[]) {
                             board[r][c] = playerPiece;
                             currentPlayer = (currentPlayer == 1) ? 2 : 1;
 
-                            // Human just made a move → clear hint + reset timer
                             hintIndex = -1;
                             lastHumanActivityTicks = SDL_GetTicks();
 
                             needsRedraw = 1;
                         }
-
                     }
                 }
             }
@@ -965,25 +1022,22 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Hint logic: if AI is one move from winning and human stalls > 5s,
-        // highlight the blocking move for the human.
+        // Hint logic
         if (gameMode == MODE_SP) {
             Cell humanPiece = (playerSide == SIDE_X) ? X : O;
             Cell whoseTurnPiece = (currentPlayer == 1) ? X : O;
 
-            // Only consider hint during human's turn and if game not over
             if (whoseTurnPiece == humanPiece && checkWin() == 0 && !isBoardFull()) {
                 Uint32 now = SDL_GetTicks();
 
                 if (lastHumanActivityTicks != 0 && (now - lastHumanActivityTicks) > 5000) {
                     int idx = find_blocking_move_against_ai(board, aiPiece);
                     if (idx != hintIndex) {
-                        hintIndex = idx;     // can be -1 if no threat
+                        hintIndex = idx; // can be -1 if no threat
                         needsRedraw = 1;
                     }
                 }
             } else {
-                // Not human's turn or game finished → clear any previous hint
                 if (hintIndex != -1) {
                     hintIndex = -1;
                     needsRedraw = 1;
@@ -994,14 +1048,11 @@ int main(int argc, char *argv[]) {
         if (needsRedraw) renderGame();
         SDL_Delay(16);
 
-
         int winner = checkWin();
         if (winner || isBoardFull()) {
-
             if (winner) {
-                    SDL_Color lineColor = (SDL_Color){255, 255, 255, 255};  // pure opaque white
-                    animateWinLine(boardRect, lineColor);
-
+                SDL_Color lineColor = textLight;
+                animateWinLine(boardRect, lineColor);
             }
 
             updateScores(winner);
@@ -1019,9 +1070,7 @@ int main(int argc, char *argv[]) {
             currentPlayer = firstPlayer;
             initBoard();
             needsRedraw = 1;
-            
         }
-
     }
 
 cleanup:
