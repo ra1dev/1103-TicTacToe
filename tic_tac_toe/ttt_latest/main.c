@@ -43,9 +43,11 @@ int bestMove_naive_bayes(Cell b[3][3]);
 int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece);
 void nb_train_from_file(const char* path);
 
-// forward declarations
+// forward declarations for local screens
 static void renderGame(void);
 static Theme themeMenu(void);
+static void playbackScreen(void);  // NEW
+
 
 // ---- global state ----
 Cell board[3][3];
@@ -55,10 +57,21 @@ TTF_Font *font = NULL;
 
 Theme currentTheme = THEME_DARK;
 
-// Hint / “prevent AI from winning”
+// HINT FUNCTION
 int hintIndex = -1;                 // -1 = no hint, 0..8 = r*3 + c
 Uint32 lastHumanActivityTicks = 0;
 static const SDL_Color hintFill = { 70, 96, 140, 255 };
+
+
+// ---- PLAYBACK FUNCTION ----
+void playback_begin_new_game(void);
+void playback_record_move(int row, int col, Cell piece);
+void playback_finalize_game(void);
+int  playback_has_last_game(void);
+int  playback_get_move_count(void);
+void playback_build_board_at_step(int step, Cell outBoard[3][3]);
+
+
 
 int currentPlayer = 1;          // 1 = X, 2 = O
 GameMode gameMode = MODE_SP;
@@ -465,6 +478,11 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     SDL_DestroyTexture(txt);
 }
 
+
+
+
+
+
 // ---------- Mode menu (main menu) ----------
 static int modeMenu(void) {
     SDL_Event event;
@@ -473,6 +491,7 @@ static int modeMenu(void) {
     const int btnH = 64;
     SDL_Rect soloBtn  = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 - btnH - 12, btnW, btnH };
     SDL_Rect duoBtn   = { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + 12,          btnW, btnH };
+    SDL_Rect playbackBtn= { (WINDOW_WIDTH - btnW)/2, WINDOW_HEIGHT/2 + btnH + 36,   btnW, btnH };//PLAYBACK BTN
     SDL_Rect themeBtn = { WINDOW_WIDTH - 140, 20, 120, 40 }; // top-right
 
     for (;;) {
@@ -490,21 +509,28 @@ static int modeMenu(void) {
         }
 
         int mx, my; SDL_GetMouseState(&mx, &my);
+
+        //FUNCTIONS FOR HOVER FEATURE
         int hSolo  = (mx>=soloBtn.x  && mx<=soloBtn.x+soloBtn.w  &&
                       my>=soloBtn.y  && my<=soloBtn.y+soloBtn.h);
         int hDuo   = (mx>=duoBtn.x   && mx<=duoBtn.x+duoBtn.w   &&
                       my>=duoBtn.y   && my<=duoBtn.y+duoBtn.h);
         int hTheme = (mx>=themeBtn.x && mx<=themeBtn.x+themeBtn.w &&
                       my>=themeBtn.y && my<=themeBtn.y+themeBtn.h);
+        int hPlayback = (mx>=playbackBtn.x && mx<=playbackBtn.x+playbackBtn.w &&
+                 my>=playbackBtn.y && my<=playbackBtn.y+playbackBtn.h);
+
 
         drawButton(soloBtn,  "Play Solo",          hSolo,  ICON_SOLO);
         drawButton(duoBtn,   "Play with a friend", hDuo,   ICON_DUO);
+        drawButton(playbackBtn, "Playback", hPlayback, ICON_NONE);
         drawButton(themeBtn, "Theme",              hTheme, ICON_NONE);
 
         SDL_RenderPresent(renderer);
 
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) return 0;
+            //MAPS THE X AND Y COORDINATES TO THE BUTTON
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int x = event.button.x, y = event.button.y;
                 if (x>=themeBtn.x && x<=themeBtn.x+themeBtn.w &&
@@ -513,10 +539,25 @@ static int modeMenu(void) {
                     if (chosen == THEME_DARK || chosen == THEME_FUN)
                         currentTheme = chosen;
                 }
+                //SINGLEPLAYER MODE CLICK
                 if (x>=soloBtn.x && x<=soloBtn.x+soloBtn.w &&
                     y>=soloBtn.y && y<=soloBtn.y+soloBtn.h)  return MODE_SP;
+                //MULTIPLAYER MODE CLICK
                 if (x>=duoBtn.x  && x<=duoBtn.x+duoBtn.w  &&
                     y>=duoBtn.y  && y<=duoBtn.y+duoBtn.h)   return MODE_MP;
+                
+                    // PLAYBACK CLICK
+                if (x>=playbackBtn.x && x<=playbackBtn.x+playbackBtn.w && y>=playbackBtn.y && y<=playbackBtn.y+playbackBtn.h) {
+                    // IF PLAYBACK DATA EXIST
+                if (playback_has_last_game()) {
+                    playbackScreen();
+                } 
+                
+                else { //NO RECORDED DATA LAST GAME
+                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Playback", "No completed game to playback yet.", window);
+                }
+            }           
+
             }
         }
         SDL_Delay(16);
@@ -626,7 +667,11 @@ static Difficulty difficultyMenu(void) {
         SDL_RenderPresent(renderer);
 
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) return DIFF_BACK;
+            if (event.type == SDL_QUIT) {
+                SDL_QUIT;
+                exit(0);
+            }
+
             if (event.type == SDL_MOUSEBUTTONDOWN) {
                 int x = event.button.x, y = event.button.y;
                 if (x>=easyBtn.x && x<=easyBtn.x+easyBtn.w &&
@@ -675,10 +720,10 @@ static PlayerSide sideMenu(void) {
 
         while(SDL_PollEvent(&event)){
             if(event.type==SDL_QUIT) {
-                if (t0) SDL_DestroyTexture(t0);
-                if (t1) SDL_DestroyTexture(t1);
-                if (t2) SDL_DestroyTexture(t2);
-                return SIDE_X;
+                SDL_Quit();
+                exit(0);
+
+
             }
             if(event.type==SDL_MOUSEBUTTONDOWN){
                 int mx=event.button.x,my=event.button.y;
@@ -762,6 +807,7 @@ static void botMove(void) {
         int j = move % 3;
         if (board[i][j] == EMPTY) {
             board[i][j] = aiPiece;
+            playback_record_move(i, j, aiPiece);//record ai move
             needsRedraw = 1;
         }
     }
@@ -938,6 +984,173 @@ static void renderGame(void) {
     needsRedraw = 0;
 }
 
+// ---------- PLAYBACK SCREEN (Last Game) ----------
+static void playbackScreen(void) {
+    if (!playback_has_last_game()) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                                 "Playback",
+                                 "No completed game to playback yet.",
+                                 window);
+        return;
+    }
+
+    int playbackIndex = 0;
+    int maxMoves      = playback_get_move_count();
+    Cell pbBoard[3][3];
+
+    SDL_Event event;
+    int viewing = 1;
+
+    while (viewing) {
+        // Build board state for this step
+        playback_build_board_at_step(playbackIndex, pbBoard);
+
+        // Background based on current theme
+        setColor(getBackgroundColor());
+        SDL_RenderClear(renderer);
+
+        // Title
+        SDL_Texture* title = createTextTexture("Playback - Last Game", font, getTextColor());
+        if (title) {
+            int tw, th;
+            SDL_QueryTexture(title, NULL, NULL, &tw, &th);
+            SDL_Rect tpos = { (WINDOW_WIDTH - tw)/2, 40, tw, th };
+            SDL_RenderCopy(renderer, title, NULL, &tpos);
+            SDL_DestroyTexture(title);
+        }
+
+        // Step text: "Move X / N"
+        char stepBuf[64];
+        snprintf(stepBuf, sizeof(stepBuf), "Move %d / %d", playbackIndex, maxMoves);
+        SDL_Texture* stepTex = createTextTexture(stepBuf, font, getTextColor());
+        if (stepTex) {
+            int sw, sh;
+            SDL_QueryTexture(stepTex, NULL, NULL, &sw, &sh);
+            SDL_Rect spos = { (WINDOW_WIDTH - sw)/2, 80, sw, sh };
+            SDL_RenderCopy(renderer, stepTex, NULL, &spos);
+            SDL_DestroyTexture(stepTex);
+        }
+
+        // Board layout (same maths as renderGame)
+        int cardSide = 3*CELL_SIZE + 2*GRID_GAP + 2*BOARD_PAD;
+        boardRect.w = cardSide;
+        boardRect.h = cardSide;
+        boardRect.x = (WINDOW_WIDTH - boardRect.w)/2;
+        boardRect.y = WINDOW_HEIGHT/2 - boardRect.h/2;
+
+        SDL_Color boardFillUse   = boardFill;
+        SDL_Color boardBorderUse = boardBorder;
+        SDL_Color cellFillUse    = cellFill;
+        SDL_Color cellBorderUse  = cellBorder;
+
+        SDL_Color xIconColor = xColor;
+        SDL_Color oIconColor = oColor;
+
+        if (currentTheme == THEME_FUN) {
+            boardFillUse   = funBoardFill;
+            cellFillUse    = funCellFill;
+            SDL_Color black = (SDL_Color){0,0,0,255};
+            boardBorderUse = black;
+            cellBorderUse  = black;
+
+            xIconColor = (SDL_Color){ 20, 150,  60, 255 };
+            oIconColor = (SDL_Color){180,  60,  90, 255 };
+        }
+
+        drawRoundedRectFilled(boardRect, 16, boardFillUse);
+        drawRoundedRectOutline(boardRect, 16, boardBorderUse);
+
+        int gx = boardRect.x + BOARD_PAD;
+        int gy = boardRect.y + BOARD_PAD;
+
+        for (int r=0; r<3; ++r) {
+            for (int c=0; c<3; ++c) {
+                SDL_Rect cell = {
+                    gx + c*(CELL_SIZE + GRID_GAP),
+                    gy + r*(CELL_SIZE + GRID_GAP),
+                    CELL_SIZE, CELL_SIZE
+                };
+
+                drawRoundedRectFilled(cell, 12, cellFillUse);
+                drawRoundedRectOutline(cell, 12, cellBorderUse);
+
+                int inset = 18;
+                int stroke = 14;
+                if (pbBoard[r][c] == X) {
+                    drawXIcon(cell, inset, stroke, xIconColor);
+                } else if (pbBoard[r][c] == O) {
+                    drawOIcon(cell, inset, stroke, oIconColor, cellFillUse);
+                }
+            }
+        }
+
+        // Bottom buttons: Prev / Next / Back
+        int btnW = 140, btnH = 50;
+        int gap  = 20;
+        int totalW = btnW*3 + gap*2;
+        int startX = (WINDOW_WIDTH - totalW)/2;
+        int by = WINDOW_HEIGHT - 80;
+
+        SDL_Rect prevBtn = { startX,              by, btnW, btnH };
+        SDL_Rect nextBtn = { startX + btnW + gap, by, btnW, btnH };
+        SDL_Rect backBtn = { startX + 2*(btnW+gap), by, btnW, btnH };
+
+        int mx, my; SDL_GetMouseState(&mx, &my);
+        int hPrev = (mx>=prevBtn.x && mx<=prevBtn.x+prevBtn.w &&
+                     my>=prevBtn.y && my<=prevBtn.y+prevBtn.h);
+        int hNext = (mx>=nextBtn.x && mx<=nextBtn.x+nextBtn.w &&
+                     my>=nextBtn.y && my<=nextBtn.y+nextBtn.h);
+        int hBack = (mx>=backBtn.x && mx<=backBtn.x+backBtn.w &&
+                     my>=backBtn.y && my<=backBtn.y+backBtn.h);
+
+        drawButton(prevBtn, "< Prev", hPrev, ICON_NONE);
+        drawButton(nextBtn, "Next >", hNext, ICON_NONE);
+        drawButton(backBtn, "Back",   hBack, ICON_NONE);
+
+        SDL_RenderPresent(renderer);
+
+        // Handle events
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                SDL_Quit();
+                exit(0);
+            }
+            if (event.type == SDL_MOUSEBUTTONDOWN) {
+                int x = event.button.x;
+                int y = event.button.y;
+
+                if (x>=prevBtn.x && x<=prevBtn.x+prevBtn.w &&
+                    y>=prevBtn.y && y<=prevBtn.y+prevBtn.h) {
+                    if (playbackIndex > 0) playbackIndex--;
+                }
+                if (x>=nextBtn.x && x<=nextBtn.x+nextBtn.w &&
+                    y>=nextBtn.y && y<=nextBtn.y+nextBtn.h) {
+                    if (playbackIndex < maxMoves) playbackIndex++;
+                }
+                if (x>=backBtn.x && x<=backBtn.x+backBtn.w &&
+                    y>=backBtn.y && y<=backBtn.y+backBtn.h) {
+                    viewing = 0;
+                    break;
+                }
+            }
+            if (event.type == SDL_KEYDOWN) {
+                if (event.key.keysym.sym == SDLK_LEFT) {
+                    if (playbackIndex > 0) playbackIndex--;
+                } else if (event.key.keysym.sym == SDLK_RIGHT) {
+                    if (playbackIndex < maxMoves) playbackIndex++;
+                } else if (event.key.keysym.sym == SDLK_ESCAPE) {
+                    viewing = 0;
+                    break;
+                }
+            }
+        }
+
+        SDL_Delay(16);
+    }
+}
+
+
+
 // ===================== MAIN =====================
 int main(int argc, char *argv[]) {
     srand((unsigned)time(NULL));
@@ -1015,6 +1228,7 @@ int main(int argc, char *argv[]) {
 
     int running = 1;
     initBoard();
+    playback_begin_new_game();//NEW GAME PLAYBACK RECORD
     currentPlayer = firstPlayer;
 
     // --- Main game loop ---
@@ -1052,6 +1266,7 @@ int main(int argc, char *argv[]) {
 
                     scoreX=scoreO=0;
                     initBoard();
+                    playback_begin_new_game();
                     firstPlayer=1;
                     currentPlayer=firstPlayer;
                     needsRedraw=1;
@@ -1063,6 +1278,7 @@ int main(int argc, char *argv[]) {
                     my>=resetButton.y && my<=resetButton.y+resetButton.h) {
                     scoreX = scoreO = 0;
                     initBoard();
+                    playback_begin_new_game();
                     firstPlayer = 1;
                     currentPlayer = firstPlayer;
                     needsRedraw = 1;
@@ -1092,6 +1308,7 @@ int main(int argc, char *argv[]) {
                                 : ((currentPlayer==1)?X:O);
 
                             board[r][c] = playerPiece;
+                            playback_record_move(r, c, playerPiece);//record player move
                             currentPlayer = (currentPlayer == 1) ? 2 : 1;
 
                             hintIndex = -1;
@@ -1147,6 +1364,7 @@ int main(int argc, char *argv[]) {
 
         int winner = checkWin();
         if (winner || isBoardFull()) {
+            playback_finalize_game(); 
             if (winner) {
                 SDL_Color lineColor = (currentTheme == THEME_FUN)
                                       ? (SDL_Color){0,0,0,255}
