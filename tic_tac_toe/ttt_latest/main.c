@@ -12,6 +12,12 @@
 #include <time.h>
 #include <math.h>
 
+//DECLARE LIBRARY TO GET WINDOWS API HEADER
+//TO GET SYSTEM INFO, memory and exec time
+#include <windows.h>
+#include <psapi.h>
+
+
 // ------------ Window / board sizing ------------
 #define WINDOW_WIDTH   600
 #define WINDOW_HEIGHT  840
@@ -57,11 +63,15 @@ TTF_Font *font = NULL;
 
 Theme currentTheme = THEME_DARK;
 
-// HINT FUNCTION
-int hintIndex = -1;                 // -1 = no hint, 0..8 = r*3 + c
+// ------- HINT FUNCTION --------
+int hintIndex = -1;             
 Uint32 lastHumanActivityTicks = 0;
 static const SDL_Color hintFill = { 70, 96, 140, 255 };
 
+// ------ CALCULATE GAME NUMBER ------
+static FILE *metricsLog = NULL;
+static int gameIndex = 0;   // current game number
+static int moveIndex = 0;   // move number
 
 // ---- PLAYBACK FUNCTION ----
 void playback_begin_new_game(void);
@@ -98,7 +108,6 @@ static const SDL_Color boardFill  = { 30,  42,  66, 255};
 static const SDL_Color boardBorder= { 60,  78, 110, 255};
 static const SDL_Color cellFill   = { 40,  54,  82, 255};
 static const SDL_Color cellBorder = { 70,  86, 120, 255};
-
 // Fun theme colours
 static const SDL_Color funBoardFill  = { 255, 243, 176, 255 };
 static const SDL_Color funCellFill   = { 255, 250, 210, 255 };
@@ -106,10 +115,10 @@ static const SDL_Color funCellFill   = { 255, 250, 210, 255 };
 // Background colour based on current theme
 static SDL_Color getBackgroundColor(void) {
     if (currentTheme == THEME_FUN) {
-        SDL_Color c = { 255, 235, 150, 255 }; // kid friendly yellow
+        SDL_Color c = { 255, 235, 150, 255 }; // YELLOW COLOR
         return c;
     } else {
-        SDL_Color c = { 0, 0, 0, 255 };       // dark
+        SDL_Color c = { 0, 0, 0, 255 };       // ELSE DARK THEME
         return c;
     }
 }
@@ -478,8 +487,68 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     SDL_DestroyTexture(txt);
 }
 
+// ------------- GET DEVICE STATS HELPER FUNCTIONS----------
+// -------------GET MEMORY PROCESS//GET MEMMORY USAGE-------------
+static size_t get_process_memory_kb(void)//RETURNS MEMORY USAGE FOR TTT.EXE ONLY
+{
+    PROCESS_MEMORY_COUNTERS_EX pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(),
+(PROCESS_MEMORY_COUNTERS *)&pmc,
+                             sizeof(pmc))) {
+        return (size_t)(pmc.WorkingSetSize / 1024); // KILOBYTES
+    }
+    return 0;
+}
 
+// -------------GET THE PREVIOUS GAME INDEX FROM THE GAME COLUMN
+int get_last_game_number(const char *filename)
+{
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        // file doesn't exist yet
+        return 0;
+    }
 
+    char buf[512];
+    int last_game = 0;
+
+    // Read line by line, remember the last valid game number
+    // ignore first line cus its header
+    while (fgets(buf, sizeof(buf), f)) {
+        int g = 0;
+        // Try to parse the first integer before the first comma
+        if (sscanf(buf, "%d,", &g) == 1) {
+            last_game = g;
+        }
+    }
+
+    fclose(f);
+    return last_game;
+}
+
+//------------ INITALIZE LOGGING FILES FOR bot_metrics.csv------------
+static void init_metrics_logging(void)
+{
+    const char *metrics_filename = "bot_metrics.csv";
+
+    // get last game number in existing file 
+    int last_game = get_last_game_number(metrics_filename);
+    gameIndex = last_game + 1;   // + to last game value
+    moveIndex = 0;
+
+    // 2. Open file in append mode
+    //    If file is brand new, we need to write the header once.
+    FILE *test = fopen(metrics_filename, "r");
+    int file_exists = (test != NULL);
+    if (test) fclose(test);
+
+    metricsLog = fopen(metrics_filename, file_exists ? "a" : "w");
+    if (metricsLog && !file_exists) {
+        // New file: write header
+        fprintf(metricsLog, "game,move,bot,time_taken_per_move,mem_diff\n");
+        fflush(metricsLog);
+    }
+}
 
 
 
@@ -793,25 +862,52 @@ static void displayMessage(const char* message) {
 }
 
 static void botMove(void) {
+    moveIndex++;
+
+    size_t mem_before = get_process_memory_kb();
+    Uint64 Time_b4_AI_move = SDL_GetPerformanceCounter();
+
     int move = -1;
+    const char *botName = "Unknown";
+
     if (aiDiff == DIFF_EASY) {
+        botName = "NaiveBayes";
         move = bestMove_naive_bayes_for(board, aiPiece);
     } else if (aiDiff == DIFF_MEDIUM) {
+        botName = "MinimaxDepth3";
         move = bestMove_minimax_for(board, aiPiece, 3, 20);
     } else {
+        botName = "MinimaxPerfect";
         move = bestMove_minimax_for(board, aiPiece, -1, 0);
     }
 
+    Uint64 Time_after_AI_move = SDL_GetPerformanceCounter();
+    size_t mem_after          = get_process_memory_kb();
+
+    // Time taken for this move in microseconds
+    double time_taken_per_move =
+        (double)(Time_after_AI_move - Time_b4_AI_move) * 1e6
+        / (double)SDL_GetPerformanceFrequency();
+
+    // Memory difference in KB during this move
+    long mem_diff = (long)mem_after - (long)mem_before;
+
+    if (metricsLog) {
+        // CSV row: game,move,bot,time_taken_per_move,mem_diff
+        fprintf(metricsLog,
+                "%d,%d,%s,%.0f,%ld\n",
+                gameIndex, moveIndex, botName,
+                time_taken_per_move, mem_diff);
+        fflush(metricsLog);
+    }
+
     if (move != -1) {
-        int i = move / 3;
-        int j = move % 3;
-        if (board[i][j] == EMPTY) {
-            board[i][j] = aiPiece;
-            playback_record_move(i, j, aiPiece);//record ai move
-            needsRedraw = 1;
-        }
+        int i = move / 3, j = move % 3;
+        board[i][j] = aiPiece;
+        needsRedraw = 1;
     }
 }
+
 
 // ---------- In-game rendering ----------
 static void renderGame(void) {
@@ -1154,6 +1250,8 @@ static void playbackScreen(void) {
 // ===================== MAIN =====================
 int main(int argc, char *argv[]) {
     srand((unsigned)time(NULL));
+    //function to initalize logging data, game number, bot_metrics.csv
+    init_metrics_logging();
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
@@ -1391,6 +1489,9 @@ int main(int argc, char *argv[]) {
             currentPlayer = firstPlayer;
             initBoard();
             needsRedraw = 1;
+            // reset game index and move when game ends
+            gameIndex++;
+            moveIndex = 0;
         }
     }
 
