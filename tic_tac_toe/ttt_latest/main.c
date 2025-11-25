@@ -72,6 +72,8 @@ static const SDL_Color hintFill = { 70, 96, 140, 255 };
 static FILE *metricsLog = NULL;
 static int gameIndex = 0;   // current game number
 static int moveIndex = 0;   // move number
+static size_t last_process_memory_kb = 0;
+
 
 // ---- PLAYBACK FUNCTION ----
 void playback_begin_new_game(void);
@@ -545,7 +547,7 @@ static void init_metrics_logging(void)
     metricsLog = fopen(metrics_filename, file_exists ? "a" : "w");
     if (metricsLog && !file_exists) {
         // New file: write header
-        fprintf(metricsLog, "game,move,bot,time_taken_per_move,mem_diff\n");
+        fprintf(metricsLog, "game,move,bot,time_taken_per_move,process_memory_kb,mem_diff\n");
         fflush(metricsLog);
     }
 }
@@ -863,7 +865,6 @@ static void displayMessage(const char* message) {
 
 static void botMove(void) {
     moveIndex++;
-
     size_t mem_before = get_process_memory_kb();
     Uint64 Time_b4_AI_move = SDL_GetPerformanceCounter();
 
@@ -889,15 +890,22 @@ static void botMove(void) {
         (double)(Time_after_AI_move - Time_b4_AI_move) * 1e6
         / (double)SDL_GetPerformanceFrequency();
 
-    // Memory difference in KB during this move
-    long mem_diff = (long)mem_after - (long)mem_before;
+    // Absolute process memory after this move (KB)
+    size_t process_memory_kb = mem_after;
+
+    // NEW: mem_diff = difference vs previous AI move's process_memory_kb
+    long mem_diff = 0;
+    if (last_process_memory_kb != 0) {
+        mem_diff = (long)process_memory_kb - (long)last_process_memory_kb;
+    }
+    last_process_memory_kb = process_memory_kb;
 
     if (metricsLog) {
-        // CSV row: game,move,bot,time_taken_per_move,mem_diff
+        // CSV row: game,move,bot,time_taken_per_move,process_memory_kb,mem_diff
         fprintf(metricsLog,
-                "%d,%d,%s,%.0f,%ld\n",
+                "%d,%d,%s,%.0f,%zu,%ld\n",
                 gameIndex, moveIndex, botName,
-                time_taken_per_move, mem_diff);
+                time_taken_per_move, process_memory_kb, mem_diff);
         fflush(metricsLog);
     }
 
@@ -907,6 +915,8 @@ static void botMove(void) {
         needsRedraw = 1;
     }
 }
+
+
 
 
 // ---------- In-game rendering ----------
