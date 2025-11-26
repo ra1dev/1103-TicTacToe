@@ -912,6 +912,7 @@ static void botMove(void) {
     if (move != -1) {
         int i = move / 3, j = move % 3;
         board[i][j] = aiPiece;
+        playback_record_move(i, j, aiPiece);  
         needsRedraw = 1;
     }
 }
