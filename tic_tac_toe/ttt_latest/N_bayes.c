@@ -110,24 +110,25 @@ int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece){
     return best;
 }
 
-// Detect 1 move away for AI to win
+// CHECK IF AI IS ABOUT TO WIN, RETURN THE NUMBER OF THE CELL
 int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece)
 {
+    //return -1 IF AI PIECE HAVE WRONG DATA
     if (aiPiece != X && aiPiece != O) return -1;
 
+    // FIND OUT WHAT PIECE IS THE HUMAN X OR O
     Cell humanPiece = (aiPiece == X) ? O : X;
 
-    // All 8 winning lines as flat indices
+    // store all variations of tic tac toe winning
     int lines[8][3] = {
-        {0,1,2}, {3,4,5}, {6,7,8},    // rows
-        {0,3,6}, {1,4,7}, {2,5,8},    // cols
-        {0,4,8}, {2,4,6}              // diagonals
+        {0,1,2}, {3,4,5}, {6,7,8}, {0,3,6}, {1,4,7}, {2,5,8}, {0,4,8}, {2,4,6}
     };
-
-    for (int i = 0; i < 8; ++i) {
-        int aiCount = 0;
-        int humanCount = 0;
-        int emptyIndex = -1;
+    //get all 8 position in the row and column
+    for (int i = 0; i < 8; ++i)
+     {
+        int aiCount = 0; // get the number of cells the AI use
+        int humanCount = 0; // get the number of square player used
+        int emptyIndex = -1; // cells which are 
 
         for (int j = 0; j < 3; ++j) {
             int idx = lines[i][j];
