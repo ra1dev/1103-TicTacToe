@@ -64,9 +64,9 @@ TTF_Font *font = NULL;
 Theme currentTheme = THEME_DARK;
 
 // ------- HINT FUNCTION --------
-int hintIndex = -1;             
-Uint32 lastHumanActivityTicks = 0;
-static const SDL_Color hintFill = { 70, 96, 140, 255 };
+int hintIndex = -1;  //-1 means no hint          
+Uint32 lastHumanActivityTicks = 0; //check how long has the user been idle
+static const SDL_Color hintFill = { 70, 96, 140, 255 };// set grid color for hint
 
 // ------ CALCULATE GAME NUMBER ------
 static FILE *metricsLog = NULL;
@@ -1431,9 +1431,10 @@ int main(int argc, char *argv[]) {
 
         // AI move
         if (gameMode==MODE_SP) {
+            // if currentplayer == whoseTurnPiece == X
+            //else whoseTurnPiece == O
             int whoseTurnPiece = (currentPlayer==1)? X : O;
-            if (whoseTurnPiece == aiPiece &&
-                !isBoardFull() && checkWin()==0) {
+            if (whoseTurnPiece == aiPiece && !isBoardFull() && checkWin()==0) {
                 botMove();
                 currentPlayer = (currentPlayer == 1) ? 2 : 1;
             }
@@ -1441,17 +1442,21 @@ int main(int argc, char *argv[]) {
 
         // Hint logic (prevent AI from winning)
         if (gameMode == MODE_SP) {
+            //humanpiece reutrns current user X or O
             Cell humanPiece = (playerSide == SIDE_X) ? X : O;
+            // whoseturnpiece = X or O, 1==currentplayer
             Cell whoseTurnPiece = (currentPlayer == 1) ? X : O;
-
+            //IF player turn AND no one has won yet AND CURRENTLY PLAYER TURN 
             if (whoseTurnPiece == humanPiece &&
                 checkWin() == 0 &&
                 !isBoardFull()) {
 
                 Uint32 now = SDL_GetTicks();
-                if (lastHumanActivityTicks != 0 &&
-                    (now - lastHumanActivityTicks) > 5000) {
+                // if more than 5sec since player's last move, show hint
+                if (lastHumanActivityTicks != 0 && (now - lastHumanActivityTicks) > 5000) {
+                    // call the function that IDs the cell that block the AI
                     int idx = find_blocking_move_against_ai(board, aiPiece);
+                    //Update hint index to the latest square hint so that another hint can be shown
                     if (idx != hintIndex) {
                         hintIndex = idx;
                         needsRedraw = 1;

@@ -110,9 +110,7 @@ int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece){
     return best;
 }
 
-// Detect a "one move away" win for the AI and return the cell
-// where the *human* should play to block it.
-// Returns index 0..8 (r*3 + c) or -1 if no immediate threat.
+// Detect 1 move away for AI to win
 int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece)
 {
     if (aiPiece != X && aiPiece != O) return -1;

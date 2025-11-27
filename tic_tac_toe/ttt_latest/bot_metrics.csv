@@ -28,3 +28,10 @@ game,move,bot,time_taken_per_move,process_memory_kb,mem_diff
 10,2,MinimaxDepth3,298,59044,0
 10,3,MinimaxDepth3,25,59044,0
 10,4,MinimaxDepth3,10,59044,0
+11,1,NaiveBayes,11,45724,0
+11,2,NaiveBayes,18,46312,588
+11,3,NaiveBayes,14,47116,804
+11,4,NaiveBayes,10,52796,5680
+11,5,NaiveBayes,15,53328,532
+11,6,NaiveBayes,9,52772,-556
+11,7,NaiveBayes,10,52196,-576
