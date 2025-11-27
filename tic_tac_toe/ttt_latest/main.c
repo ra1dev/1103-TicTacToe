@@ -12,13 +12,7 @@
 #include <time.h>
 #include <math.h>
 
-//DECLARE LIBRARY TO GET WINDOWS API HEADER
-//TO GET SYSTEM INFO, memory and exec time
-#include <windows.h>
-#include <psapi.h>
-
-
-// ------------ Window / board sizing ------------
+// Window / board sizing
 #define WINDOW_WIDTH   600
 #define WINDOW_HEIGHT  840
 
@@ -33,7 +27,7 @@
 #define BOARD_BOTTOM_PAD           36
 #define WINLINE_THICKNESS          8
 
-// ------- Game types -------
+// Game types
 typedef enum { EMPTY=0, X=1, O=2 } Cell;
 typedef enum { MODE_MP=1, MODE_SP=2 } GameMode;
 typedef enum { DIFF_BACK=-1, DIFF_EASY=0, DIFF_MEDIUM=1, DIFF_HARD=2 } Difficulty;
@@ -41,41 +35,42 @@ typedef enum { SIDE_X=0, SIDE_O=1 } PlayerSide;
 typedef enum { ICON_NONE=0, ICON_SOLO=1, ICON_DUO=2 } ButtonIcon;
 typedef enum { THEME_DARK=0, THEME_FUN=1 } Theme;
 
-// ---- externs from your algorithm modules ----
-int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece);
-int bestMove_minimax(Cell b[3][3], int depthLimit, int blunderPct);
-int bestMove_minimax_for(Cell b[3][3], Cell aiPiece, int depthLimit, int blunderPct);
-int bestMove_naive_bayes(Cell b[3][3]);
-int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece);
-void nb_train_from_file(const char* path);
+// function prototypes
 
-// forward declarations for local screens
-static void renderGame(void);
-static Theme themeMenu(void);
-static void playbackScreen(void);  // NEW
+//decision-making logic for AI
+//hint for user to block AI from winning
+int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece); 
+
+//depthLimit for how far the AI searches
+//blunderPct for making suboptimal moves to simulate human error
+// int bestMove_minimax(Cell b[3][3], int depthLimit, int blunderPct);
+int bestMove_minimax_for(Cell b[3][3], Cell aiPiece, int depthLimit, int blunderPct); // aiPiece is the AI's chosen piece
+
+// int bestMove_naive_bayes(Cell b[3][3]); // best move based on trained data
+int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece); // best move based on trained data, but for AI's piece
+void nb_train_from_file(const char* path);  // references to N_bayes.c for training data
+
+// UI-related
+static void renderGame(void);   // draws game board
+static Theme themeMenu(void);   // calls function that allows user to choose theme
+static void playbackScreen(void);  // calls function that shows history of most recent game
 
 
-// ---- global state ----
+// core state of SDL objects
 Cell board[3][3];
 SDL_Window *window = NULL;
 SDL_Renderer *renderer = NULL;
 TTF_Font *font = NULL;
 
-Theme currentTheme = THEME_DARK;
+Theme currentTheme = THEME_DARK;    // sets current theme to Dark
 
-// ------- HINT FUNCTION --------
-int hintIndex = -1;  //-1 means no hint          
-Uint32 lastHumanActivityTicks = 0; //check how long has the user been idle
-static const SDL_Color hintFill = { 70, 96, 140, 255 };// set grid color for hint
-
-// ------ CALCULATE GAME NUMBER ------
-static FILE *metricsLog = NULL;
-static int gameIndex = 0;   // current game number
-static int moveIndex = 0;   // move number
-static size_t last_process_memory_kb = 0;
+// HINT FUNCTION
+int hintIndex = -1; // -1 = no hint, 0..8 = r*3 + c
+Uint32 lastHumanActivityTicks = 0;
+static const SDL_Color hintFill = { 70, 96, 140, 255 };
 
 
-// ---- PLAYBACK FUNCTION ----
+// PLAYBACK FUNCTION
 void playback_begin_new_game(void);
 void playback_record_move(int row, int col, Cell piece);
 void playback_finalize_game(void);
@@ -84,8 +79,8 @@ int  playback_get_move_count(void);
 void playback_build_board_at_step(int step, Cell outBoard[3][3]);
 
 
-
-int currentPlayer = 1;          // 1 = X, 2 = O
+// PLAYBACK FUNCTION
+int currentPlayer = 1;  // 1 = X, 2 = O
 GameMode gameMode = MODE_SP;
 Difficulty aiDiff = DIFF_EASY;
 PlayerSide playerSide = SIDE_X;
@@ -110,6 +105,7 @@ static const SDL_Color boardFill  = { 30,  42,  66, 255};
 static const SDL_Color boardBorder= { 60,  78, 110, 255};
 static const SDL_Color cellFill   = { 40,  54,  82, 255};
 static const SDL_Color cellBorder = { 70,  86, 120, 255};
+
 // Fun theme colours
 static const SDL_Color funBoardFill  = { 255, 243, 176, 255 };
 static const SDL_Color funCellFill   = { 255, 250, 210, 255 };
@@ -117,10 +113,10 @@ static const SDL_Color funCellFill   = { 255, 250, 210, 255 };
 // Background colour based on current theme
 static SDL_Color getBackgroundColor(void) {
     if (currentTheme == THEME_FUN) {
-        SDL_Color c = { 255, 235, 150, 255 }; // YELLOW COLOR
+        SDL_Color c = { 255, 235, 150, 255 }; // kid friendly yellow
         return c;
     } else {
-        SDL_Color c = { 0, 0, 0, 255 };       // ELSE DARK THEME
+        SDL_Color c = { 0, 0, 0, 255 };       // dark
         return c;
     }
 }
@@ -135,13 +131,14 @@ static SDL_Color getTextColor(void) {
     }
 }
 
-// ---------- basics ----------
+// resets each cell to EMPTY constant
 static void initBoard(void) {
     for (int i=0;i<3;i++)
         for (int j=0;j<3;j++)
             board[i][j] = EMPTY;
 }
 
+// text rendering utility in SDL2 with SDL2_ttf
 static SDL_Texture* createTextTexture(const char* text, TTF_Font* fnt, SDL_Color color) {
     SDL_Surface* surface = TTF_RenderUTF8_Blended(fnt, text, color);
     if (!surface) return NULL;
@@ -150,7 +147,7 @@ static SDL_Texture* createTextTexture(const char* text, TTF_Font* fnt, SDL_Color
     return texture;
 }
 
-// ---------- Winning Line Helpers ----------
+// win-detection logic (checks rows, columns, diagonals)
 static int getWinLine(int *r1, int *c1, int *r2, int *c2)
 {
     for (int i = 0; i < 3; i++) {
@@ -182,6 +179,7 @@ static int getWinLine(int *r1, int *c1, int *r2, int *c2)
     return 0;
 }
 
+// SDL renderer for GUI
 static void drawThickLine(float x1, float y1, float x2, float y2, int thickness, SDL_Color color)
 {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
@@ -205,6 +203,7 @@ static void drawThickLine(float x1, float y1, float x2, float y2, int thickness,
     }
 }
 
+// Animation of Win Line
 static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor)
 {
     int r1, c1, r2, c2;
@@ -236,6 +235,7 @@ static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor)
     const float duration_ms = 600.0f;
     Uint32 start = SDL_GetTicks();
 
+    // animation loop
     for (;;) {
         float t = (SDL_GetTicks() - start) / duration_ms;
         if (t > 1.0f) t = 1.0f;
@@ -269,6 +269,7 @@ static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor)
         SDL_Delay(16);
     }
 
+    // draw winning line that stays on page
     renderGame();
     SDL_Color c = lineColor;
     SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
@@ -276,11 +277,12 @@ static void animateWinLine(SDL_Rect boardRect, SDL_Color lineColor)
     SDL_RenderPresent(renderer);
 }
 
-// -------------- misc drawing --------------
+// SDL renderer for GUI
 static void setColor(SDL_Color c){
     SDL_SetRenderDrawColor(renderer,c.r,c.g,c.b,c.a);
 }
 
+//  Render player icon
 static void hline(int x1, int x2, int y)
 {
     if (x2 < x1) { int t = x1; x1 = x2; x2 = t; }
@@ -308,6 +310,7 @@ static void fillRing(int cx, int cy, int outerR, int thickness,
     }
 }
 
+// Render button shapes
 static void drawRoundedRectFilled(SDL_Rect r, int rad, SDL_Color fill)
 {
     if (rad < 1) {
@@ -367,7 +370,7 @@ static void drawRoundedRectOutline(SDL_Rect r, int rad, SDL_Color border)
     }
 }
 
-// --- vector pieces/icons ---
+// render pieces (X, O)
 static void drawThickDiag(int x1, int y1, int x2, int y2, int thickness, SDL_Color color)
 {
     setColor(color);
@@ -444,7 +447,7 @@ static void drawTwoPeopleOutline(int x, int y, int size, int stroke,
     drawPersonOutline(x,  y,  size,  stroke, col, bg);
 }
 
-// -------------- Button drawing --------------
+// Button drawing
 static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon icon)
 {
     const int radius = 14;
@@ -489,72 +492,7 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     SDL_DestroyTexture(txt);
 }
 
-// ------------- GET DEVICE STATS HELPER FUNCTIONS----------
-// -------------GET MEMORY PROCESS//GET MEMMORY USAGE-------------
-static size_t get_process_memory_kb(void)//RETURNS MEMORY USAGE FOR TTT.EXE ONLY
-{
-    PROCESS_MEMORY_COUNTERS_EX pmc;
-    if (GetProcessMemoryInfo(GetCurrentProcess(),
-(PROCESS_MEMORY_COUNTERS *)&pmc,
-                             sizeof(pmc))) {
-        return (size_t)(pmc.WorkingSetSize / 1024); // KILOBYTES
-    }
-    return 0;
-}
-
-// -------------GET THE PREVIOUS GAME INDEX FROM THE GAME COLUMN
-int get_last_game_number(const char *filename)
-{
-    FILE *f = fopen(filename, "r");
-    if (!f) {
-        // file doesn't exist yet
-        return 0;
-    }
-
-    char buf[512];
-    int last_game = 0;
-
-    // Read line by line, remember the last valid game number
-    // ignore first line cus its header
-    while (fgets(buf, sizeof(buf), f)) {
-        int g = 0;
-        // Try to parse the first integer before the first comma
-        if (sscanf(buf, "%d,", &g) == 1) {
-            last_game = g;
-        }
-    }
-
-    fclose(f);
-    return last_game;
-}
-
-//------------ INITALIZE LOGGING FILES FOR bot_metrics.csv------------
-static void init_metrics_logging(void)
-{
-    const char *metrics_filename = "bot_metrics.csv";
-
-    // get last game number in existing file 
-    int last_game = get_last_game_number(metrics_filename);
-    gameIndex = last_game + 1;   // + to last game value
-    moveIndex = 0;
-
-    // 2. Open file in append mode
-    //    If file is brand new, we need to write the header once.
-    FILE *test = fopen(metrics_filename, "r");
-    int file_exists = (test != NULL);
-    if (test) fclose(test);
-
-    metricsLog = fopen(metrics_filename, file_exists ? "a" : "w");
-    if (metricsLog && !file_exists) {
-        // New file: write header
-        fprintf(metricsLog, "game,move,bot,time_taken_per_move,process_memory_kb,mem_diff\n");
-        fflush(metricsLog);
-    }
-}
-
-
-
-// ---------- Mode menu (main menu) ----------
+// Drawing mode buttons in main menu
 static int modeMenu(void) {
     SDL_Event event;
 
@@ -581,7 +519,7 @@ static int modeMenu(void) {
 
         int mx, my; SDL_GetMouseState(&mx, &my);
 
-        //FUNCTIONS FOR HOVER FEATURE
+        //functions for hover feature
         int hSolo  = (mx>=soloBtn.x  && mx<=soloBtn.x+soloBtn.w  &&
                       my>=soloBtn.y  && my<=soloBtn.y+soloBtn.h);
         int hDuo   = (mx>=duoBtn.x   && mx<=duoBtn.x+duoBtn.w   &&
@@ -635,7 +573,7 @@ static int modeMenu(void) {
     }
 }
 
-// ---------- Theme selection ----------
+// background theme selection
 static Theme themeMenu(void) {
     SDL_Event event;
 
@@ -690,7 +628,7 @@ static Theme themeMenu(void) {
     }
 }
 
-// ---------- Difficulty selection ----------
+// difficulty selection
 static Difficulty difficultyMenu(void) {
     SDL_Event event;
 
@@ -759,7 +697,7 @@ static Difficulty difficultyMenu(void) {
     }
 }
 
-// ---------- Side selection ----------
+// player icon selection
 static PlayerSide sideMenu(void) {
     SDL_Event event;
 
@@ -819,12 +757,13 @@ static PlayerSide sideMenu(void) {
     }
 }
 
-// ---------- Game helpers ----------
+// updates score of current game
 static void updateScores(int winner) {
     if (winner==X) scoreX++;
     else if (winner==O) scoreO++;
 }
 
+// detects win-logic to return winner
 static int checkWin(void) {
     for (int i=0;i<3;i++) {
         if (board[i][0]!=EMPTY && board[i][0]==board[i][1] && board[i][1]==board[i][2])
@@ -839,6 +778,7 @@ static int checkWin(void) {
     return 0;
 }
 
+// checks if board is full
 static int isBoardFull(void) {
     for(int i=0;i<3;i++)
         for(int j=0;j<3;j++)
@@ -846,6 +786,7 @@ static int isBoardFull(void) {
     return 1;
 }
 
+// renders display message
 static void displayMessage(const char* message) {
     SDL_Texture* msgTex = createTextTexture(message, font, getTextColor());
     if (!msgTex) return;
@@ -863,64 +804,31 @@ static void displayMessage(const char* message) {
     SDL_Delay(1100);
 }
 
+// AI behaviour based on difficulty
 static void botMove(void) {
-    moveIndex++;
-    size_t mem_before = get_process_memory_kb();
-    Uint64 Time_b4_AI_move = SDL_GetPerformanceCounter();
-
-    int move = -1;
-    const char *botName = "Unknown";
-
+    int move = -1; // no move chosen yet
     if (aiDiff == DIFF_EASY) {
-        botName = "NaiveBayes";
-        move = bestMove_naive_bayes_for(board, aiPiece);
+        move = bestMove_naive_bayes_for(board, aiPiece); // bot chooses next move based on NB training data
     } else if (aiDiff == DIFF_MEDIUM) {
-        botName = "MinimaxDepth3";
+        // bot chooses next move with a depth of only 3, with 20% chance to choose non-optimal move
         move = bestMove_minimax_for(board, aiPiece, 3, 20);
     } else {
-        botName = "MinimaxPerfect";
+        // bot chooses next move with exhaustive depth, with 0% chance to choose non-optimal move
         move = bestMove_minimax_for(board, aiPiece, -1, 0);
     }
 
-    Uint64 Time_after_AI_move = SDL_GetPerformanceCounter();
-    size_t mem_after          = get_process_memory_kb();
-
-    // Time taken for this move in microseconds
-    double time_taken_per_move =
-        (double)(Time_after_AI_move - Time_b4_AI_move) * 1e6
-        / (double)SDL_GetPerformanceFrequency();
-
-    // Absolute process memory after this move (KB)
-    size_t process_memory_kb = mem_after;
-
-    // NEW: mem_diff = difference vs previous AI move's process_memory_kb
-    long mem_diff = 0;
-    if (last_process_memory_kb != 0) {
-        mem_diff = (long)process_memory_kb - (long)last_process_memory_kb;
-    }
-    last_process_memory_kb = process_memory_kb;
-
-    if (metricsLog) {
-        // CSV row: game,move,bot,time_taken_per_move,process_memory_kb,mem_diff
-        fprintf(metricsLog,
-                "%d,%d,%s,%.0f,%zu,%ld\n",
-                gameIndex, moveIndex, botName,
-                time_taken_per_move, process_memory_kb, mem_diff);
-        fflush(metricsLog);
-    }
-
     if (move != -1) {
-        int i = move / 3, j = move % 3;
-        board[i][j] = aiPiece;
-        playback_record_move(i, j, aiPiece);  
-        needsRedraw = 1;
+        int i = move / 3;
+        int j = move % 3;
+        if (board[i][j] == EMPTY) {
+            board[i][j] = aiPiece;
+            playback_record_move(i, j, aiPiece); //record ai move
+            needsRedraw = 1;
+        }
     }
 }
 
-
-
-
-// ---------- In-game rendering ----------
+// in-game rendering
 static void renderGame(void) {
     setColor(getBackgroundColor());
     SDL_RenderClear(renderer);
@@ -1091,7 +999,7 @@ static void renderGame(void) {
     needsRedraw = 0;
 }
 
-// ---------- PLAYBACK SCREEN (Last Game) ----------
+// playback screen rendering
 static void playbackScreen(void) {
     if (!playback_has_last_game()) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
@@ -1256,27 +1164,28 @@ static void playbackScreen(void) {
     }
 }
 
-
-
 // ===================== MAIN =====================
 int main(int argc, char *argv[]) {
-    srand((unsigned)time(NULL));
-    //function to initalize logging data, game number, bot_metrics.csv
-    init_metrics_logging();
+    srand((unsigned)time(NULL)); // ensure AI blunder for each run
 
+    // render SDL for hints
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
 
+    // start SDL video system
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
+
+    // initialize font rendering
     if (TTF_Init() == -1) {
         fprintf(stderr, "TTF_Init failed: %s\n", TTF_GetError());
         SDL_Quit();
         return 1;
     }
 
+    // create window
     window = SDL_CreateWindow("Tic Tac Toe",
                               SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               WINDOW_WIDTH, WINDOW_HEIGHT, 0);
@@ -1285,6 +1194,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // create hardware-accelerated renderer
     renderer = SDL_CreateRenderer(window, -1,
                                   SDL_RENDERER_ACCELERATED |
                                   SDL_RENDERER_PRESENTVSYNC);
@@ -1292,87 +1202,95 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
+    SDL_RenderSetIntegerScale(renderer, SDL_FALSE); // allows smoothber scaling of textures
 
     font = NULL;
-    const char* fontPaths[] = {
+    const char* fontPaths[] = { // use arial font
         "arial.ttf",
         "fonts/arial.ttf",
         "assets/arial.ttf"
     };
-    for (int i = 0; i < 3 && !font; ++i) {
+
+    for (int i = 0; i < 3 && !font; ++i) {  // loads 3 font paths
         font = TTF_OpenFont(fontPaths[i], 28);
     }
     if (!font) {
         fprintf(stderr, "Could not open font arial.ttf: %s\n", TTF_GetError());
         return 1;
     }
+    
+    // font options
     TTF_SetFontHinting(font, TTF_HINTING_LIGHT);
     TTF_SetFontKerning(font, 1);
 
-    // Train Naive Bayes AI
+    // train Naive Bayes AI
     nb_train_from_file("tic-tac-toe.data");
 
-    // --- Menus / setup ---
-    int modeSel = modeMenu();
-    if (modeSel==0) goto cleanup;
-    gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;
+    // menu setup
+    int modeSel = modeMenu(); // displays menu
+    if (modeSel==0) goto cleanup;   // clears the page if "Exit" is pressed
+    gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;    // sets gamemode based on user pref
 
     if (gameMode==MODE_SP) {
         for (;;) {
-            Difficulty d = difficultyMenu();
-            if (d != DIFF_BACK) { aiDiff = d; break; }
+            Difficulty d = difficultyMenu(); // display the difficulty menu
+            if (d != DIFF_BACK) { aiDiff = d; break; } // go back to menu if "Back" is clicked
             modeSel = modeMenu();
             if (modeSel==0) goto cleanup;
             gameMode = (modeSel==MODE_SP)? MODE_SP: MODE_MP;
-            if (gameMode != MODE_SP) break;
+            if (gameMode != MODE_SP) break; // exit back to menu if "singleplayer" is not clicked
         }
         if (gameMode==MODE_SP) {
-            playerSide = sideMenu();
-            aiPiece = (playerSide==SIDE_X) ? O : X;
+            playerSide = sideMenu();    // option to choose which side to play us
+            aiPiece = (playerSide==SIDE_X) ? O : X; // assign icon to player based on pref
         }
     }
 
-    lastHumanActivityTicks = SDL_GetTicks();
+    lastHumanActivityTicks = SDL_GetTicks();    // cjeck for player idle time
 
     int running = 1;
-    initBoard();
+    initBoard();    // draw the board
     playback_begin_new_game();//NEW GAME PLAYBACK RECORD
-    currentPlayer = firstPlayer;
+    currentPlayer = firstPlayer;    // stores currentplayer so loser will start first
 
-    // --- Main game loop ---
+    // Main game loop
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) running=0;
+            if (event.type == SDL_QUIT) 
+            running=0;  // shuts down program if program closes
 
             if (event.type == SDL_MOUSEBUTTONDOWN) {
-                int mx = event.button.x, my = event.button.y;
+                int mx = event.button.x, my = event.button.y;   // click behavaiour for mouse
 
                 // Back button
                 if (mx >= backButton.x && mx <= backButton.x + backButton.w &&
                     my >= backButton.y && my <= backButton.y + backButton.h) {
 
-                    int newMode = modeMenu();
-                    if (newMode==0) { running=0; break; }
-                    gameMode = (newMode==MODE_SP)? MODE_SP: MODE_MP;
+                    // int newMode = modeMenu();
+                    // if (newMode==0) { 
+                    //     running=0; 
+                    //     break; 
+                    // }
+                    // gameMode = (newMode==MODE_SP)? MODE_SP: MODE_MP;
 
-                    if (gameMode==MODE_SP) {
-                        for (;;) {
-                            Difficulty d = difficultyMenu();
-                            if (d != DIFF_BACK) { aiDiff = d; break; }
-                            int tmpMode = modeMenu();
-                            if (tmpMode==0) { running=0; break; }
-                            gameMode = (tmpMode==MODE_SP)? MODE_SP: MODE_MP;
-                            if (gameMode != MODE_SP) break;
-                        }
-                        if (!running) break;
-                        if (gameMode==MODE_SP) {
-                            playerSide = sideMenu();
-                            aiPiece = (playerSide==SIDE_X) ? O : X;
-                        }
-                    }
+                    // if (gameMode==MODE_SP) {
+                    //     for (;;) {
+                    //         Difficulty d = difficultyMenu();
+                    //         if (d != DIFF_BACK) { aiDiff = d; break; }
+                    //         int tmpMode = modeMenu();
+                    //         if (tmpMode==0) { running=0; break; }
+                    //         gameMode = (tmpMode==MODE_SP)? MODE_SP: MODE_MP;
+                    //         if (gameMode != MODE_SP) break;
+                    //     }
+                    //     if (!running) break;
+                    //     if (gameMode==MODE_SP) {
+                    //         playerSide = sideMenu();
+                    //         aiPiece = (playerSide==SIDE_X) ? O : X;
+                    //     }
+                    // }
 
+                    // resets game state
                     scoreX=scoreO=0;
                     initBoard();
                     playback_begin_new_game();
@@ -1431,32 +1349,28 @@ int main(int argc, char *argv[]) {
 
         // AI move
         if (gameMode==MODE_SP) {
-            // if currentplayer == whoseTurnPiece == X
-            //else whoseTurnPiece == O
-            int whoseTurnPiece = (currentPlayer==1)? X : O;
-            if (whoseTurnPiece == aiPiece && !isBoardFull() && checkWin()==0) {
+            int whoseTurnPiece = (currentPlayer==1)? X : O; // chooses which piece to move
+            // checks if board is not full before moving and no winners yet
+            if (whoseTurnPiece == aiPiece &&
+                !isBoardFull() && checkWin()==0) {
                 botMove();
-                currentPlayer = (currentPlayer == 1) ? 2 : 1;
+                currentPlayer = (currentPlayer == 1) ? 2 : 1;   // alternates player turn
             }
         }
 
         // Hint logic (prevent AI from winning)
         if (gameMode == MODE_SP) {
-            //humanpiece reutrns current user X or O
             Cell humanPiece = (playerSide == SIDE_X) ? X : O;
-            // whoseturnpiece = X or O, 1==currentplayer
             Cell whoseTurnPiece = (currentPlayer == 1) ? X : O;
-            //IF player turn AND no one has won yet AND CURRENTLY PLAYER TURN 
+
             if (whoseTurnPiece == humanPiece &&
                 checkWin() == 0 &&
                 !isBoardFull()) {
 
                 Uint32 now = SDL_GetTicks();
-                // if more than 5sec since player's last move, show hint
-                if (lastHumanActivityTicks != 0 && (now - lastHumanActivityTicks) > 5000) {
-                    // call the function that IDs the cell that block the AI
+                if (lastHumanActivityTicks != 0 &&
+                    (now - lastHumanActivityTicks) > 5000) {
                     int idx = find_blocking_move_against_ai(board, aiPiece);
-                    //Update hint index to the latest square hint so that another hint can be shown
                     if (idx != hintIndex) {
                         hintIndex = idx;
                         needsRedraw = 1;
@@ -1479,7 +1393,7 @@ int main(int argc, char *argv[]) {
         int winner = checkWin();
         if (winner || isBoardFull()) {
             playback_finalize_game(); 
-            if (winner) {
+            if (winner) {   // display winner message
                 SDL_Color lineColor = (currentTheme == THEME_FUN)
                                       ? (SDL_Color){0,0,0,255}
                                       : getTextColor();
@@ -1499,19 +1413,18 @@ int main(int argc, char *argv[]) {
             else
                 displayMessage("Draw!");
 
+            // ensures loser will start first in the next game
             if (winner == X) firstPlayer = 2;
             else if (winner == O) firstPlayer = 1;
 
+            // redraws the board after winner is decided
             currentPlayer = firstPlayer;
             initBoard();
             needsRedraw = 1;
-            // reset game index and move when game ends
-            gameIndex++;
-            moveIndex = 0;
         }
     }
 
-cleanup:
+cleanup:    // clears and destroy all SDL states before closing the program
     if (font) TTF_CloseFont(font);
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
