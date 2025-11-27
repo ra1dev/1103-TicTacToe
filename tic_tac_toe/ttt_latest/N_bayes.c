@@ -23,35 +23,47 @@ static NBModel nb = {0};
 
 static int Tok(const char* s){ return (s[0]=='b')?0:(s[0]=='x')?1:2; } // b,x,o
 static int Lab(const char* s){ return (s[0]=='p')?1:0; }              // positive means X wins
-
+ 
 void nb_train_from_file(const char* path){
     FILE* f=fopen(path,"r");
     if (!f) {
     SDL_Init(SDL_INIT_VIDEO); // ensure SDL ready for message box
 
     SDL_ShowSimpleMessageBox(
-        SDL_MESSAGEBOX_ERROR,
-        "Missing AI Data File",
+        SDL_MESSAGEBOX_ERROR,   // Checks if tic-tac-toe.data is missing or not.
+        "Missing AI Data File", // Has to be in the same folder.
         "Error: Required file 'tic-tac-toe.data' is missing.\n"
         "Please place it in the same folder as ttt.exe.",
         NULL
     );
 
     exit(EXIT_FAILURE);  // stop the entire program
-}
-    char line[256];
-    while(fgets(line,sizeof line,f)){
-        char *sp=NULL; int feat[9]; int ok=1;
-        for(int i=0;i<9;i++){ char* t=(i==0)? strtok_r(line,",\r\n",&sp):strtok_r(NULL,",\r\n",&sp); if(!t){ok=0;break;} feat[i]=Tok(t); }
-        char* lbl= ok? strtok_r(NULL,",\r\n",&sp):NULL; if(!lbl) continue;
-        int cls=Lab(lbl); nb.classCount[cls]++; nb.totalRows++;
+    }
+    char line[256]; 
+    while(fgets(line,sizeof line,f)){ // Entire fgets() loop ensures parsing
+        char *sp=NULL;               // This means that if "b,b,x,x,o,b,b,o,x,positive"
+        int feat[9];                // It becomes [0,0,1,1,2,0,0,2,1]
+        int ok=1;
+        for(int i=0;i<9;i++){ 
+            char* t=(i==0)? strtok_r(line,",\r\n",&sp):strtok_r(NULL,",\r\n",&sp); 
+            if(!t){
+                ok=0;break;
+            } 
+            feat[i]=Tok(t); 
+        }
+        char* lbl= ok? strtok_r(NULL,",\r\n",&sp):NULL; 
+        if(!lbl) 
+            continue;
+        int cls=Lab(lbl); 
+        nb.classCount[cls]++; 
+        nb.totalRows++;
         for(int i=0;i<9;i++) nb.counts[cls][i][feat[i]]++;
     }
     fclose(f); nb.trained=1;
 }
 
-static double nb_predict_logprob(int feat[9], int cls){
-    // Laplace smoothing
+static double nb_predict_logprob(int feat[9], int cls){  
+    // Laplace smoothing done to prevent any 0's from happening
     double logp=0.0;
     double prior=(nb.classCount[cls]+1.0)/(nb.totalRows+2.0);
     logp += log(prior);
@@ -110,25 +122,26 @@ int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece){
     return best;
 }
 
-// CHECK IF AI IS ABOUT TO WIN, RETURN THE NUMBER OF THE CELL
+// Detect a "one move away" win for the AI and return the cell
+// where the *human* should play to block it.
+// Returns index 0..8 (r*3 + c) or -1 if no immediate threat.
 int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece)
 {
-    //return -1 IF AI PIECE HAVE WRONG DATA
     if (aiPiece != X && aiPiece != O) return -1;
 
-    // FIND OUT WHAT PIECE IS THE HUMAN X OR O
     Cell humanPiece = (aiPiece == X) ? O : X;
 
-    // store all variations of tic tac toe winning
+    // All 8 winning lines as flat indices
     int lines[8][3] = {
-        {0,1,2}, {3,4,5}, {6,7,8}, {0,3,6}, {1,4,7}, {2,5,8}, {0,4,8}, {2,4,6}
+        {0,1,2}, {3,4,5}, {6,7,8},    // rows
+        {0,3,6}, {1,4,7}, {2,5,8},    // cols
+        {0,4,8}, {2,4,6}              // diagonals
     };
-    //get all 8 position in the row and column
-    for (int i = 0; i < 8; ++i)
-     {
-        int aiCount = 0; // get the number of cells the AI use
-        int humanCount = 0; // get the number of square player used
-        int emptyIndex = -1; // cells which are 
+
+    for (int i = 0; i < 8; ++i) {
+        int aiCount = 0;
+        int humanCount = 0;
+        int emptyIndex = -1;
 
         for (int j = 0; j < 3; ++j) {
             int idx = lines[i][j];
@@ -152,4 +165,169 @@ int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece)
 
     return -1;  // no immediate AI win
 }
+
+typedef struct {
+    int TP, TN, FP, FN;
+} ConfusionMatrix;
+
+static void cm_update(ConfusionMatrix *cm, int actual, int predicted)
+/* actual: 0=negative, 1=positive  */
+/* predicted: 0=negative, 1=positive */
+{
+    if (actual == 1 && predicted == 1) cm->TP++;
+    else if (actual == 0 && predicted == 0) cm->TN++;
+    else if (actual == 0 && predicted == 1) cm->FP++;
+    else if (actual == 1 && predicted == 0) cm->FN++;
+}
+
+// Evaluate Naive Bayes on an 80:20 train:test split of the dataset.
+// This is for the *report* (prints to console); the game itself still
+// uses nb_train_from_file() like before.
+void nb_train_test_stats(const char *path)
+{
+    enum {MAX_ROWS = 1000};
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "[NB] Error opening dataset.\n");
+        return;
+    }
+    
+    // ---------------------------------------
+    // 1. Load entire dataset
+    // ---------------------------------------
+    int feat[MAX_ROWS][9];
+    int label[MAX_ROWS];
+    int rows = 0;
+
+    char line[256];
+    while (rows < MAX_ROWS && fgets(line, sizeof line, f)) {
+        char *sp = NULL;
+        int ok = 1;
+
+        for (int i = 0; i < 9; ++i) {
+            char *t = (i == 0) ? strtok_r(line, ",\r\n", &sp)
+                               : strtok_r(NULL, ",\r\n", &sp);
+            if (!t) { ok = 0; break; }
+            feat[rows][i] = Tok(t);
+        }
+
+        char *lbl = ok ? strtok_r(NULL, ",\r\n", &sp) : NULL;
+        if (!lbl) continue;
+
+        label[rows] = Lab(lbl);
+        rows++;
+    }
+    fclose(f);
+
+    if (rows == 0) {
+        printf("[NB] Dataset empty.\n");
+        return;
+    }
+
+    // ---------------------------------------
+    // 2. STRATIFIED SAMPLING GOES HERE
+    // ---------------------------------------
+
+    // ---- Stratified Sampling 80:20 ----T
+    int posCount = 0, negCount = 0;
+    for (int i = 0; i < rows; i++) {
+        if (label[i] == 1) posCount++;
+        else negCount++;
+    }
+
+    int trainPos = (posCount * 8) / 10;
+    int trainNeg = (negCount * 8) / 10;
+
+    int isTrain[MAX_ROWS] = {0};
+    int posSeen = 0, negSeen = 0;
+
+    for (int i = 0; i < rows; i++) {
+        if (label[i] == 1) {
+            if (posSeen < trainPos) {
+                isTrain[i] = 1;
+                posSeen++;
+            }
+        } else {
+            if (negSeen < trainNeg) {
+                isTrain[i] = 1;
+                negSeen++;
+            }
+        }
+    }
+
+    // ---------------------------------------
+    // 3. Train NB using only training rows
+    // ---------------------------------------
+    memset(&nb, 0, sizeof(nb));
+
+    for (int r = 0; r < rows; r++) {
+        if (!isTrain[r]) continue;
+
+        int cls = label[r];
+        nb.classCount[cls]++;
+        nb.totalRows++;
+
+        for (int i = 0; i < 9; i++) {
+            nb.counts[cls][i][ feat[r][i] ]++;
+        }
+    }
+    nb.trained = 1;
+
+    // ---------------------------------------
+    // 4. Evaluate on both train and test sets
+    // ---------------------------------------
+    ConfusionMatrix cmTrain = {0}, cmTest = {0};
+
+    // Training evaluation
+    for (int r = 0; r < rows; r++) {
+        if (!isTrain[r]) continue;
+
+        double p = nb_predict_prob_xwin(feat[r]);
+        int predicted = (p >= 0.5);
+        cm_update(&cmTrain, label[r], predicted);
+    }
+
+    // Testing evaluation
+    for (int r = 0; r < rows; r++) {
+        if (isTrain[r]) continue;
+
+        double p = nb_predict_prob_xwin(feat[r]);
+        int predicted = (p >= 0.5);
+        cm_update(&cmTest, label[r], predicted);
+    }
+
+    // Print stats...
+    int trainTotal   = cmTrain.TP + cmTrain.TN + cmTrain.FP + cmTrain.FN;
+    int testTotal    = cmTest.TP + cmTest.TN + cmTest.FP + cmTest.FN;
+
+    double trainAcc  = (trainTotal > 0) ? 100.0 * (cmTrain.TP + cmTrain.TN) / trainTotal : 0.0;
+    double testAcc   = (testTotal  > 0) ? 100.0 * (cmTest.TP + cmTest.TN) / testTotal  : 0.0;
+    
+    FILE *out = fopen("nb_stats.dat", "w");
+    if (out) {
+        fprintf(out, "# dataset accuracy error\n");
+        fprintf(out, "train %.2f %.2f\n", trainAcc, 100.0 - trainAcc);
+        fprintf(out, "test  %.2f %.2f\n",  testAcc, 100.0 - testAcc);
+        fclose(out);
+    }
+    printf("Naive Bayes 80:20 stratified train/test split on '%s'\n", path);
+    printf("Total rows: %d\n\n", rows);
+
+    printf("Training accuracy   = %.2f%%  (error = %.2f%%)\n",
+           trainAcc, 100.0 - trainAcc);
+    printf("Testing  accuracy   = %.2f%%  (error = %.2f%%)\n\n",
+           testAcc,  100.0 - testAcc);
+
+    printf("Training confusion matrix (actual rows vs predicted columns):\n");
+    printf("              Predicted +   Predicted -\n");
+    printf("Actual +      %5d TP        %5d FN\n", cmTrain.TP, cmTrain.FN);
+    printf("Actual -      %5d FP        %5d TN\n\n", cmTrain.FP, cmTrain.TN);
+
+    printf("Testing confusion matrix (actual rows vs predicted columns):\n");
+    printf("              Predicted +   Predicted -\n");
+    printf("Actual +      %5d TP        %5d FN\n", cmTest.TP, cmTest.FN);
+    printf("Actual -      %5d FP        %5d TN\n\n", cmTest.FP, cmTest.TN);
+}
+
+
 
