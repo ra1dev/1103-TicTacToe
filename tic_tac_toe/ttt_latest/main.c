@@ -54,7 +54,6 @@ int find_blocking_move_against_ai(Cell b[3][3], Cell aiPiece);
 
 //depthLimit for how far the AI searches
 //blunderPct for making suboptimal moves to simulate human error
-// int bestMove_minimax(Cell b[3][3], int depthLimit, int blunderPct);
 int bestMove_minimax_for(Cell b[3][3], Cell aiPiece, int depthLimit, int blunderPct); // aiPiece is the AI's chosen piece
 
 int bestMove_naive_bayes_for(Cell b[3][3], Cell aiPiece); // best move based on trained data, but for AI's piece
