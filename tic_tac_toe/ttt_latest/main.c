@@ -12,6 +12,17 @@
 #include <time.h>
 #include <math.h>
 
+
+
+//DECLARE LIBRARY TO GET WINDOWS API HEADER
+//TO GET SYSTEM INFO, memory and exec time
+#include <windows.h>
+#include <psapi.h>
+
+
+// ------------ Window / board sizing ------------
+//DECLARE LIBRARY TO GET WINDOWS API HEADER
+//TO GET SYSTEM INFO, memory and exec tim
 // Window / board sizing
 #define WINDOW_WIDTH   600
 #define WINDOW_HEIGHT  840
@@ -68,6 +79,12 @@ Theme currentTheme = THEME_DARK;    // sets current theme to Dark
 int hintIndex = -1; // -1 = no hint, 0..8 = r*3 + c
 Uint32 lastHumanActivityTicks = 0;
 static const SDL_Color hintFill = { 70, 96, 140, 255 };
+
+// ------ CALCULATE GAME METRICS ------
+static FILE *metricsLog = NULL;
+static int gameIndex = 0;   // current game number
+static int moveIndex = 0;   // move number
+static size_t last_process_memory_kb = 0;
 
 
 // PLAYBACK FUNCTION
@@ -492,6 +509,74 @@ static void drawButton(SDL_Rect r, const char* label, int hovered, ButtonIcon ic
     SDL_DestroyTexture(txt);
 }
 
+// ------------- GET DEVICE STATS HELPER FUNCTIONS----------
+// -------------GET MEMORY PROCESS//GET MEMMORY USAGE-------------
+static size_t get_process_memory_kb(void)//RETURNS MEMORY USAGE FOR TTT.EXE ONLY
+{
+    PROCESS_MEMORY_COUNTERS_EX pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(),
+(PROCESS_MEMORY_COUNTERS *)&pmc,
+                             sizeof(pmc))) {
+        return (size_t)(pmc.WorkingSetSize / 1024); // KILOBYTES
+    }
+    return 0;
+}
+
+// -------------GET THE PREVIOUS GAME INDEX FROM THE GAME COLUMN
+int get_last_game_number(const char *filename)
+{
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        // file doesn't exist yet
+        return 0;
+    }
+
+    char buf[512];
+    int last_game = 0;
+
+    // Read line by line, remember the last valid game number
+    // ignore first line cus its header
+    while (fgets(buf, sizeof(buf), f)) {
+        int g = 0;
+        // Try to parse the first integer before the first comma
+        if (sscanf(buf, "%d,", &g) == 1) {
+            last_game = g;
+        }
+    }
+
+    fclose(f);
+    return last_game;
+}
+
+//------------ INITALIZE LOGGING FILES FOR bot_metrics.csv------------
+static void init_metrics_logging(void)
+{
+    const char *metrics_filename = "bot_metrics.csv";
+
+    // get last game number in existing file 
+    int last_game = get_last_game_number(metrics_filename);
+    gameIndex = last_game + 1;   // + to last game value
+    moveIndex = 0;
+
+    // 2. Open file in append mode
+    //    If file is brand new, we need to write the header once.
+    FILE *test = fopen(metrics_filename, "r");
+    int file_exists = (test != NULL);
+    if (test) fclose(test);
+
+    metricsLog = fopen(metrics_filename, file_exists ? "a" : "w");
+    if (metricsLog && !file_exists) {
+        // New file: write header
+        fprintf(metricsLog, "game,move,bot,time_taken_per_move,process_memory_kb,mem_diff\n");
+        fflush(metricsLog);
+    }
+}
+
+
+
+// ---------- Mode menu (main menu) ----------
+
+
 // Drawing mode buttons in main menu
 static int modeMenu(void) {
     SDL_Event event;
@@ -804,29 +889,64 @@ static void displayMessage(const char* message) {
     SDL_Delay(1100);
 }
 
-// AI behaviour based on difficulty
 static void botMove(void) {
-    int move = -1; // no move chosen yet
+    moveIndex++;
+    size_t mem_before = get_process_memory_kb();
+    Uint64 Time_b4_AI_move = SDL_GetPerformanceCounter();
+
+    int move = -1;
+    const char *botName = "Unknown";
+
     if (aiDiff == DIFF_EASY) {
-        move = bestMove_naive_bayes_for(board, aiPiece); // bot chooses next move based on NB training data
+        botName = "NaiveBayes";
+        move = bestMove_naive_bayes_for(board, aiPiece);
     } else if (aiDiff == DIFF_MEDIUM) {
-        // bot chooses next move with a depth of only 3, with 20% chance to choose non-optimal move
+        botName = "MinimaxDepth3";
         move = bestMove_minimax_for(board, aiPiece, 3, 20);
     } else {
-        // bot chooses next move with exhaustive depth, with 0% chance to choose non-optimal move
+        botName = "MinimaxPerfect";
         move = bestMove_minimax_for(board, aiPiece, -1, 0);
     }
 
+    Uint64 Time_after_AI_move = SDL_GetPerformanceCounter();
+    size_t mem_after          = get_process_memory_kb();
+
+    // Time taken for this move in microseconds
+    double time_taken_per_move =
+        (double)(Time_after_AI_move - Time_b4_AI_move) * 1e6
+        / (double)SDL_GetPerformanceFrequency();
+
+    // Absolute process memory after this move (KB)
+    size_t process_memory_kb = mem_after;
+
+    // NEW: mem_diff = difference vs previous AI move's process_memory_kb
+    long mem_diff = 0;
+    if (last_process_memory_kb != 0) {
+        mem_diff = (long)process_memory_kb - (long)last_process_memory_kb;
+    }
+    last_process_memory_kb = process_memory_kb;
+
+    if (metricsLog) {
+        // CSV row: game,move,bot,time_taken_per_move,process_memory_kb,mem_diff
+        fprintf(metricsLog,
+                "%d,%d,%s,%.0f,%zu,%ld\n",
+                gameIndex, moveIndex, botName,
+                time_taken_per_move, process_memory_kb, mem_diff);
+        fflush(metricsLog);
+    }
+
     if (move != -1) {
-        int i = move / 3;
-        int j = move % 3;
-        if (board[i][j] == EMPTY) {
-            board[i][j] = aiPiece;
-            playback_record_move(i, j, aiPiece); //record ai move
-            needsRedraw = 1;
-        }
+        int i = move / 3, j = move % 3;
+        board[i][j] = aiPiece;
+        playback_record_move(i, j, aiPiece);  
+        needsRedraw = 1;
     }
 }
+
+
+
+
+
 
 // in-game rendering
 static void renderGame(void) {
@@ -1166,7 +1286,9 @@ static void playbackScreen(void) {
 
 // ===================== MAIN =====================
 int main(int argc, char *argv[]) {
-    srand((unsigned)time(NULL)); // ensure AI blunder for each run
+    srand((unsigned)time(NULL));
+    //function to initalize logging data, game number, bot_metrics.csv
+    init_metrics_logging();
 
     // render SDL for hints
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
@@ -1267,28 +1389,28 @@ int main(int argc, char *argv[]) {
                 if (mx >= backButton.x && mx <= backButton.x + backButton.w &&
                     my >= backButton.y && my <= backButton.y + backButton.h) {
 
-                    // int newMode = modeMenu();
-                    // if (newMode==0) { 
-                    //     running=0; 
-                    //     break; 
-                    // }
-                    // gameMode = (newMode==MODE_SP)? MODE_SP: MODE_MP;
+                    int newMode = modeMenu();
+                    if (newMode==0) { 
+                        running=0; 
+                        break; 
+                    }
+                    gameMode = (newMode==MODE_SP)? MODE_SP: MODE_MP;
 
-                    // if (gameMode==MODE_SP) {
-                    //     for (;;) {
-                    //         Difficulty d = difficultyMenu();
-                    //         if (d != DIFF_BACK) { aiDiff = d; break; }
-                    //         int tmpMode = modeMenu();
-                    //         if (tmpMode==0) { running=0; break; }
-                    //         gameMode = (tmpMode==MODE_SP)? MODE_SP: MODE_MP;
-                    //         if (gameMode != MODE_SP) break;
-                    //     }
-                    //     if (!running) break;
-                    //     if (gameMode==MODE_SP) {
-                    //         playerSide = sideMenu();
-                    //         aiPiece = (playerSide==SIDE_X) ? O : X;
-                    //     }
-                    // }
+                    if (gameMode==MODE_SP) {
+                        for (;;) {
+                            Difficulty d = difficultyMenu();
+                            if (d != DIFF_BACK) { aiDiff = d; break; }
+                            int tmpMode = modeMenu();
+                            if (tmpMode==0) { running=0; break; }
+                            gameMode = (tmpMode==MODE_SP)? MODE_SP: MODE_MP;
+                            if (gameMode != MODE_SP) break;
+                        }
+                        if (!running) break;
+                        if (gameMode==MODE_SP) {
+                            playerSide = sideMenu();
+                            aiPiece = (playerSide==SIDE_X) ? O : X;
+                        }
+                    }
 
                     // resets game state
                     scoreX=scoreO=0;
@@ -1421,6 +1543,9 @@ int main(int argc, char *argv[]) {
             currentPlayer = firstPlayer;
             initBoard();
             needsRedraw = 1;
+            // reset game index and move when game ends
+            gameIndex++;
+            moveIndex = 0;
         }
     }
 
