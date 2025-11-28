@@ -45,6 +45,4 @@ Compile using gcc on MSYS2 using this command:
 ```bash
 gcc main.c Minimax.c N_bayes.c playback.c -o ttt.exe   -IC:/msys64/ucrt64/include/SDL2 -LC:/msys64/ucrt64/lib   -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lm -mwindows
 ```
-### Architecture
-- All game logic and states handled in one big loop  
-- **Fix:** Use a simple state machine or modularize into separate functions/modules (menu, game, results)
+
