@@ -1,10 +1,10 @@
-// playback.c - store and reconstruct the last Tic-Tac-Toe game
-
 #include <stddef.h>
 
 // This enum must match the one in main.c
 typedef enum { EMPTY=0, X=1, O=2 } Cell;
 
+
+//MOV data type to store each player move
 typedef struct {
     int row;
     int col;
@@ -58,15 +58,13 @@ int playback_get_move_count(void)
     return lastMoveCount;
 }
 
-// Build board state at given step into outBoard.
-// step = 0 => empty board
-// step = k (1..lastMoveCount) => first k moves applied
+// Build/modify board state outBoard.
 void playback_build_board_at_step(int step, Cell outBoard[3][3])
 {
     if (!outBoard)
         return;
 
-    // Clear board
+    // RESET BOARD TO EMPTY
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c)
             outBoard[r][c] = EMPTY;
@@ -75,7 +73,7 @@ void playback_build_board_at_step(int step, Cell outBoard[3][3])
         step = 0;
     if (step > lastMoveCount)
         step = lastMoveCount;
-
+    //NESTED LOOP TO REPLAY STEP BY STEP
     for (int i = 0; i < step; ++i) {
         int r = lastMoves[i].row;
         int c = lastMoves[i].col;
